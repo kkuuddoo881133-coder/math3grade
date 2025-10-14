@@ -1,3 +1,90 @@
+最短ループ チートシート
+0) 前提：C:\Users\user\math3grade にいる
+cd C:\Users\user\math3grade
+
+1) GASで編集したあと → ローカルへ反映
+
+（GAS側で直したら、まずローカルを最新に）
+
+clasp pull
+
+
+これで src/ に最新が落ちる
+
+2) 変更をGitHubへ共有
+git status
+git add .
+git commit -m "説明になる短いメッセージ"
+git push -u origin main
+
+
+共有したいときは、GitHubのURLをここに貼ってくれればOK
+
+他の人にレビューさせたいなら「ブランチ→PR」でもOK（下に簡単版あり）
+
+3) GitHubでレビュー・修正が入った（＝自分のローカルに取り込み）
+
+（GitHub上でなにか入った後は、ローカルを更新）
+
+git pull --rebase origin main
+
+4) ローカルの内容をGASに反映（Webアプリ更新したい時）
+clasp push
+
+
+公開はGASエディタで「デプロイ → 新しいデプロイ → ウェブアプリ」
+
+既存デプロイの更新なら「デプロイ → 変更をデプロイ」
+
+もう1つだけ覚えると便利：ブランチ方式（任意）
+
+小さな変更を分けて共有したい時：
+
+git switch -c feature/bargraph-scale   ← 作業用ブランチ作成
+# 変更する
+git add .
+git commit -m "バーグラフの目盛り改善"
+git push -u origin feature/bargraph-scale
+
+
+→ GitHubで「Compare & pull request」ボタン → PR作成
+レビュー終わったらGitHubでマージ → ローカル更新：
+
+git switch main
+git pull --rebase origin main
+clasp push   ← 必要ならGASへ反映
+
+つまずきがちな時のワンライナー
+
+pull/pushで怒られた（未コミットがある）
+
+git status
+git add .
+git commit -m "WIP"
+
+
+どうしても一旦避難したい（変更を一時退避）
+
+git stash push -m "temp"
+git pull --rebase origin main
+git stash pop
+
+
+自分が今どこで作業してるか忘れた
+
+git branch
+
+
+GASのスクリプトID違う？ → .clasp.json を開いて確認
+
+{ "scriptId": "GASのスクリプトID", "rootDir": "src" }
+
+
+この流れで回せばOK。
+次は「どの変更をGASに反映したいか」だけ教えてくれたら、貼って差し替えOKのファイル単位でパッチを渡すね。
+
+
+
 <!-- Internal memo only -->
 <pre>
 mkdir backup-$(date +"%Y%m%d-%H%M")
