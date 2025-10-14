@@ -1,0 +1,954 @@
+<script>
+// ===== エラーを赤枠(#debug)に出す =====
+window.addEventListener('error', function (e) {
+  var dbg = document.getElementById('debug');
+  if (dbg) {
+    dbg.style.display = 'block';
+    dbg.textContent = 'JS Error: ' + e.message + '\n' + e.filename + ':' + e.lineno + ':' + e.colno;
+  }
+  toast('内部エラーが発生しました（詳細は赤枠）');
+});
+window.addEventListener('unhandledrejection', function (e) {
+  var dbg = document.getElementById('debug');
+  if (dbg) {
+    dbg.style.display = 'block';
+    var r = e && e.reason;
+    var msg = r && r.stack ? r.stack : (r && r.message ? r.message : String(r));
+    dbg.textContent = 'UnhandledRejection: ' + msg;
+  }
+  toast('非同期エラーが発生しました（詳細は赤枠）');
+});
+
+// ===== 画面切替（show の衝突回避で showScreen に統一） =====
+function showScreen(id) {
+  var S = {
+    login:  document.getElementById('screen-login'),
+    home:   document.getElementById('screen-home'),
+    quiz:   document.getElementById('screen-quiz'),
+    result: document.getElementById('screen-result'),
+    summary:document.getElementById('screen-summary')
+  };
+  for (var k in S) { if (S[k]) S[k].classList.remove('active'); }
+  if (S[id]) S[id].classList.add('active');
+}
+
+// ===== トースト =====
+function toast(msg) {
+  var t = document.getElementById('toast');
+  if (!t) return;
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(function(){ t.classList.remove('show'); }, 2000);
+}
+
+// ===== ユーティリティ =====
+function escapeHTML(s){
+  return String(s||'').replace(/[&<>"']/g, function(m){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]; });
+}
+function formatUnitsHTML(s){
+  var x = escapeHTML(s);
+  x = x.replace(/２/g,'2').replace(/３/g,'3').replace(/＾/g,'^');
+  x = x
+    .replace(/㎠/g, 'cm<sup>2</sup>')
+    .replace(/㎤/g, 'cm<sup>3</sup>')
+    .replace(/cm²/gi, 'cm<sup>2</sup>')
+    .replace(/cm³/gi, 'cm<sup>3</sup>')
+    .replace(/ｃｍ²/gi, 'cm<sup>2</sup>')
+    .replace(/ｃｍ³/gi, 'cm<sup>3</sup>');
+  x = x.replace(/(cm|mm|m)\s*[\^＾]\s*2/gi, '$1<sup>2</sup>')
+       .replace(/(cm|mm|m)\s*[\^＾]\s*3/gi, '$1<sup>3</sup>')
+       .replace(/(cm|mm|m)\s*2(?!\d)/gi, '$1<sup>2</sup>')
+       .replace(/(cm|mm|m)\s*3(?!\d)/gi, '$1<sup>3</sup>');
+  return x;
+}
+// 互換ヘルパ
+function safeValue(el){ return (el && typeof el.value === 'string') ? el.value.trim() : ''; }
+function safeMsg(err){ return (err && err.message) ? err.message : String(err); }
+function safeGet(arr, i){ return (arr && arr.length > i && arr[i] != null) ? arr[i] : ''; }
+
+// ===== 状態 =====
+var state = {
+  user_id: null, nickname: null, pin: null,
+  domains: [],
+  session: { items: [], idx: 0, selected: null, correctCount: 0, startedAt: 0 }
+};
+
+// === 正解位置の表示モード ===
+// 'as_is'  : 並べ替えなし（シート通り。今はこれで運用）
+// 'shuffle': 毎問ランダム並べ替え
+// 'force_C': 表示上は常にCが正解
+// 'cycle'  : A→B→C→Dと巡回で正解位置を分散
+const ANSWER_POSITION_MODE = 'shuffle';
+
+let _cycleNextIndex = 0; // cycle用カウンタ（0:A,1:B,2:C,3:D）
+
+// 正解位置モードに応じた並べ替え（perm: 0..3 が A..D を指す）
+function buildChoicePermutation(originalCorrectLetter) {
+  const labels = ['A','B','C','D'];
+  const correctIdx = labels.indexOf(String(originalCorrectLetter || 'A').toUpperCase());
+  let perm = [0,1,2,3];
+
+  if (ANSWER_POSITION_MODE === 'as_is') return perm;
+
+  if (ANSWER_POSITION_MODE === 'shuffle') {
+    for (let i = perm.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [perm[i], perm[j]] = [perm[j], perm[i]];
+    }
+    return perm;
+  }
+
+  if (ANSWER_POSITION_MODE === 'force_C') {
+    const target = 2; // Cの位置
+    perm = perm.filter(i => i !== correctIdx);
+    perm.splice(target, 0, correctIdx);
+    return perm;
+  }
+
+  if (ANSWER_POSITION_MODE === 'cycle') {
+    const target = _cycleNextIndex % 4; // 0:A,1:B,2:C,3:D
+    _cycleNextIndex++;
+    perm = perm.filter(i => i !== correctIdx);
+    perm.splice(target, 0, correctIdx);
+    return perm;
+  }
+
+  return perm;
+}
+
+// 各問題に「表示↔元のレター」対応表と表示用choicesを付与
+function attachChoiceMapping(q) {
+  const labels = ['A','B','C','D'];
+  const perm = buildChoicePermutation(q.correct);
+  // 表示用選択肢
+  q.shuffledChoices = perm.map(i => q.choices[i]);
+  // 表示 index(0..3) → 元のレター（A..D）
+  q.displayToOriginal = perm.map(i => labels[i]);
+  // 元のレター（A..D）→ 表示 index(0..3)
+  q.originalToDisplay = {};
+  perm.forEach((i, dispIdx) => { q.originalToDisplay[labels[i]] = dispIdx; });
+}
+
+
+// ===== 要素参照 =====
+var stemEl, assetEl, choicesEl, progressEl, skillLabelEl, submitBtn;
+
+// ===== Login処理（堅牢・段階ログ） =====
+function handleLoginClick() {
+  var dbg = document.getElementById('debug');
+  function log(msg, obj){
+    if (!dbg) return;
+    dbg.style.display = 'block';
+    var now = new Date().toISOString();
+    dbg.textContent += '[' + now + '] ' + msg + (obj ? '\n' + JSON.stringify(obj, null, 2) + '\n' : '\n');
+  }
+
+  log('step0: click');
+
+  var nicknameEl = document.getElementById('nickname');
+  var pinEl = document.getElementById('pin');
+  var btn = document.getElementById('loginBtn');
+  var orig = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '接続中…'; }
+
+  try {
+    var n = safeValue(nicknameEl) || 'guest';
+    var p = safeValue(pinEl) || '0000';
+    state.nickname = n; state.pin = p;
+    state.user_id = n + '#' + p;
+    try { localStorage.setItem('user_id', state.user_id); } catch(_){}
+    log('step1: state set', { user_id: state.user_id });
+  } catch (e) {
+    log('step1-error: state set failed', { err: safeMsg(e) });
+  }
+
+  var done = false;
+  function finish(why){
+    if (done) return; done = true;
+    log('finish', { why: why });
+    if (btn) { btn.disabled = false; btn.textContent = orig; }
+  }
+  var watchdog = setTimeout(function(){
+    toast('接続が遅い/止まっています。非常口でホームへ進みます。');
+    try { renderDomains(); } catch(_){}
+    showScreen('home');
+    finish('watchdog');
+  }, 8000);
+
+  if (typeof google === 'undefined' || !google.script || !google.script.run) {
+    toast('GASのWebアプリURLで開いてください');
+    clearTimeout(watchdog); finish('no GAS env'); return;
+  }
+
+  // 1) 最軽量
+  log('step2: call returnNumber');
+  google.script.run
+    .withFailureHandler(function(err){
+      log('step2-fail returnNumber', { err: safeMsg(err) });
+      clearTimeout(watchdog); finish('returnNumber fail');
+      toast('接続エラー: ' + safeMsg(err));
+    })
+    .withSuccessHandler(function(v){
+      log('step2-ok returnNumber', { valueType: typeof v, value: v });
+
+      // 2) 軽量診断
+      log('step3: call healthCheckDiag');
+      google.script.run
+        .withFailureHandler(function(err){ log('step3-fail healthCheckDiag', { err: safeMsg(err) }); })
+        .withSuccessHandler(function(diag){ log('step3-ok healthCheckDiag', diag); })
+        .healthCheckDiag();
+
+      // 3) ドメイン
+      log('step4: call getDomains');
+      google.script.run
+        .withFailureHandler(function(err){
+          log('step4-fail getDomains', { err: safeMsg(err) });
+          toast('ドメイン取得エラー: ' + safeMsg(err));
+          state.domains = [];
+          try { renderDomains(); } catch(e){ log('renderDomains error', { err: safeMsg(e) }); }
+          showScreen('home');
+          clearTimeout(watchdog); finish('getDomains fail');
+        })
+        .withSuccessHandler(function(domains){
+          log('step4-ok getDomains', { count: (Array.isArray(domains)?domains.length:'n/a') });
+          state.domains = Array.isArray(domains) ? domains : [];
+          try { renderDomains(); } catch(e){ log('renderDomains error', { err: safeMsg(e) }); }
+          showScreen('home');
+
+          // 4) 本番ヘルス（表示だけ反映）
+          log('step5: call healthCheck');
+          google.script.run
+            .withFailureHandler(function(err){
+              log('step5-fail healthCheck', { err: safeMsg(err) });
+              var h = document.getElementById('health');
+              if (h) h.textContent = '接続OK / スプレッドシートNG: ' + safeMsg(err);
+            })
+            .withSuccessHandler(function(info){
+              log('step5-ok healthCheck', info);
+              var h = document.getElementById('health');
+              if (h) h.textContent = '接続OK / Questions:' + info.hasQuestions + ' / Responses:' + info.hasResponses;
+            })
+            .healthCheck();
+
+          clearTimeout(watchdog); finish('ok');
+        })
+        .getDomains();
+    })
+    .returnNumber();
+}
+
+// ===== ドメイン読込 =====
+function loadDomains() {
+  google.script.run
+    .withSuccessHandler(function(domains){
+      state.domains = Array.isArray(domains) ? domains : [];
+      try { renderDomains(); } catch (e) {
+        var dbg = document.getElementById('debug');
+        if (dbg) { dbg.style.display='block'; dbg.textContent = 'renderDomains error: ' + safeMsg(e); }
+      }
+      showScreen('home');
+    })
+    .withFailureHandler(function(err){
+      toast('ドメイン取得エラー: ' + safeMsg(err));
+      state.domains = [];
+      try { renderDomains(); } catch(_){}
+      showScreen('home');
+    })
+    .getDomains();
+}
+
+// ===== ドメイン描画 =====
+function renderDomains() {
+  var box = document.getElementById('domains');
+  if (!box) return;
+  box.innerHTML = '';
+  var list = state.domains || [];
+  for (var i=0;i<list.length;i++){
+    var d = list[i];
+    var div = document.createElement('div');
+    div.className = 'card';
+    div.innerHTML = '<strong>' + escapeHTML(d) + '</strong>';
+    (function(domain){
+      div.onclick = function(){ startQuiz(domain); };
+    })(d);
+    box.appendChild(div);
+  }
+}
+
+// ===== 出題〜採点 =====
+function startQuiz(domain) {
+  google.script.run
+    .withSuccessHandler(function(items){
+      state.session.items = items || [];
+      (state.session.items || []).forEach(q => attachChoiceMapping(q));
+      state.session.idx = 0;
+      state.session.correctCount = 0;
+      showQuestion();
+      showScreen('quiz');
+    })
+    .withFailureHandler(function(err){
+      // ★ 失敗の詳細を赤枠に出す（見える化）
+      var dbg = document.getElementById('debug');
+      if (dbg) {
+        dbg.style.display = 'block';
+        dbg.textContent += '\n[getQuestions fail] ' + safeMsg(err) + '\n';
+      }
+      toast('問題取得エラー: ' + safeMsg(err));
+    })
+    // ★ 認可に必要な user_id を必ず渡す
+    .getQuestions({ domain: domain, limit: 50, order: 'sequential', user_id: state.user_id });
+}
+
+function showQuestion() {
+  var q = state.session.items[state.session.idx];
+  if (!q) { toast('問題がありません'); return; }
+
+  state.session.selected = null;
+  state.session.startedAt = Date.now();
+
+  if (progressEl)    progressEl.textContent = (state.session.idx + 1) + ' / ' + state.session.items.length;
+  if (skillLabelEl)  skillLabelEl.textContent = 'スキル：' + (q && q.skill ? q.skill : '');
+  if (stemEl)        stemEl.innerHTML = formatUnitsHTML((q && q.stem) ? q.stem : '');
+  renderAsset(q ? q.assets : '');
+
+  if (choicesEl) {
+    choicesEl.innerHTML = '';
+    var keys = ['A','B','C','D'];
+    for (var i=0;i<4;i++){
+      var key = keys[i];
+      var text = formatUnitsHTML(safeGet(q && q.shuffledChoices, i) || '');
+      var btn = document.createElement('button');
+      btn.className = 'choice';
+      btn.type = 'button';
+      btn.setAttribute('data-key', key);
+      // ★ ARIA：ラジオボタン相当の意味付け
+      btn.setAttribute('role', 'radio');
+      btn.setAttribute('aria-checked', 'false');
+      btn.innerHTML = '(' + key + ') ' + text;
+      choicesEl.appendChild(btn);
+    }
+  }
+
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.classList.add('btn-disabled');
+    submitBtn.setAttribute('aria-disabled', 'true');
+  }
+}
+
+// ===== 図の描画 =====
+// ❶ SVGユーティリティ
+function svgEl(tag, attrs){ const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  Object.keys(attrs||{}).forEach(k=>el.setAttribute(k, attrs[k])); return el; }
+
+// ものさし（cm）: totalCm, pins, labels, opts {every, style, labelScale, range:{start,end}}
+function drawRuler(totalCm, pins, labels, opts){
+  opts = opts || {};
+  const W = 600, H = 120, L = 40, R = W - 20;
+  const baselineY = 70;
+  const svg = svgEl("svg", { width: "100%", viewBox: `0 0 ${W} ${H}` });
+
+  // ===== 表示範囲（ズーム） =====
+  let startCm = 0, endCm = Math.max(1, totalCm);
+  if (opts.range && isFinite(opts.range.start) && isFinite(opts.range.end) && opts.range.end > opts.range.start) {
+    startCm = Math.max(0, Math.min(totalCm, opts.range.start));
+    endCm   = Math.max(0, Math.min(totalCm, opts.range.end));
+  }
+  const rangeLen = Math.max(1, endCm - startCm);
+  const scale = (x) => L + (R - L) * ((x - startCm) / rangeLen);
+  const pxPerCm = (R - L) / rangeLen;
+
+  // ===== ラベル間隔（指定があれば優先、なければ自動） =====
+  let labelStep = opts.every ? Math.max(10, parseInt(opts.every,10)||50) : null;
+  if (!labelStep){
+    if (pxPerCm * 10 >= 28) labelStep = 10;
+    else if (pxPerCm * 20 >= 28) labelStep = 20;
+    else labelStep = 50;
+  }
+
+  // ベースライン
+  svg.appendChild(svgEl("line", { x1: L, y1: baselineY, x2: R, y2: baselineY, stroke: "#333", "stroke-width": 2 }));
+
+  // ===== 目盛（1cm/10cm/100cm） =====
+  for (let cm = Math.ceil(startCm); cm <= Math.floor(endCm); cm++) {
+    const x = scale(cm);
+    const is100 = (cm % 100 === 0);
+    const is10  = (cm % 10  === 0);
+    const yTop  = is100 ? 30 : is10 ? 40 : 50;
+    const color = is100 ? "#d33" : "#333";
+    const sw    = is100 ? 2 : 1;
+    svg.appendChild(svgEl("line", { x1: x, y1: yTop, x2: x, y2: baselineY, stroke: color, "stroke-width": sw }));
+
+    // ラベル：100cmは上に「Xm」、cmは labelStep ごとに下（cm は 0〜90 表示）
+    if (is100) {
+      const t = svgEl("text", { x, y: 22, "font-size": 14, "text-anchor": "middle", fill: color });
+      t.textContent = (cm / 100) + "m";
+      svg.appendChild(t);
+    } else if (is10 && (cm % labelStep === 0)) {
+      const t2 = svgEl("text", { x, y: 85, "font-size": 11 * (opts.labelScale||1), "text-anchor": "middle", fill: "#333" });
+      t2.textContent = (cm % 100) + "cm";
+      svg.appendChild(t2);
+    }
+  }
+
+  // ===== ピン（ア/イ/ウ…） =====
+  const style = (opts.style || '').toLowerCase(); // "", "flag", "arrow", "arrowtop"
+  pins = pins || []; labels = labels || [];
+  pins.forEach((p, i) => {
+    if (p < startCm || p > endCm) return; // 範囲外は非表示
+    const x = scale(p);
+
+    if (style === 'arrowtop') {
+      // *小さな上向き矢印*（目盛に被らない）
+      const tipY = 36, baseY = 28;
+      svg.appendChild(svgEl("path", { d:`M${x-7},${tipY} L${x+7},${tipY} L${x},${baseY} Z`, fill:"#0a63cf" }));
+      const box = svg.appendChild(svgEl("rect", { x:x-12, y:6, width:24, height:16, rx:4, fill:"#0a63cf" }));
+      const t = svg.appendChild(svgEl("text", { x, y:18, "font-size":12, "text-anchor":"middle", fill:"#fff" }));
+      t.textContent = labels[i] || String(i+1);
+    } else if (style === 'flag') {
+      const w=28, h=18;
+      svg.appendChild(svgEl("path", { d:`M${x},20 v${h} l${w},0 l-6,-9 l6,-9 z`, fill:"#06c" }));
+      const t = svgEl("text", { x: x + 10, y: 33, "font-size": 13, "text-anchor": "middle", fill:"#fff" });
+      t.textContent = labels[i] || String(i + 1);
+      svg.appendChild(t);
+      svg.appendChild(svgEl("line",{x1:x,y1:20,x2:x,y2:baselineY,stroke:"#06c","stroke-width":3,opacity:0.4}));
+    } else if (style === 'arrow') {
+      const tri = svg.appendChild(svgEl("path", { d:`M${x-8},20 L${x+8},20 L${x},28 Z`, fill:"#06c" }));
+      const t = svg.appendChild(svgEl("text", { x, y:18, "font-size":12, "text-anchor":"middle", fill:"#06c" }));
+      t.textContent = labels[i] || String(i + 1);
+      svg.appendChild(svgEl("line",{x1:x,y1:28,x2:x,y2:baselineY,stroke:"#06c","stroke-width":3,opacity:0.4}));
+    } else {
+      // 既定（小さめの青丸ラベル＋薄い縦線）
+      const b = svg.appendChild(svgEl("rect", { x: x - 10, y: 5, width: 20, height: 16, rx: 3, fill: "#06c" }));
+      const t = svg.appendChild(svgEl("text", { x, y: 17, "font-size": 12, "text-anchor": "middle", fill: "#fff" }));
+      t.textContent = labels[i] || String(i + 1);
+      svg.appendChild(svgEl("line",{x1:x,y1:20,x2:x,y2:baselineY,stroke:"#06c","stroke-width":3,opacity:0.35}));
+    }
+  });
+
+  return svg;
+}
+
+
+
+function renderAsset(id) {
+  if (!assetEl) return;
+  var s = String(id || '').trim();
+  // 全角→半角の軽い正規化（識別用は小文字化、ラベル保持は raw を使う）
+  s = s.replace(/：/g, ':').replace(/[－ー]/g, '-').toLowerCase();
+  assetEl.innerHTML = '';
+  if (!s) return;
+
+  function nums(rest){
+    var out = [];
+    var parts = rest.split('-');
+    for (var i=0;i<parts.length;i++){
+      var n = parseInt(parts[i], 10);
+      if (isFinite(n)) out.push(n);
+    }
+    return out;
+  }
+
+  function normalizeImageUrl(raw){
+    var url = String(raw || '').trim();
+    if (url.toLowerCase().indexOf('img:') === 0) url = url.slice(4).trim();
+
+    if (/^(data:|https?:\/\/)/i.test(url)) {
+      var m = url.match(/https?:\/\/drive\.google\.com\/file\/d\/([^/]+)\//i);
+      if (m && m[1]) return 'https://drive.google.com/uc?export=view&id=' + m[1];
+      return url;
+    }
+    var g = url.match(/^gdrive:([\w-]+)$/i);
+    if (g && g[1]) return 'https://drive.google.com/uc?export=view&id=' + g[1];
+    return url; // 相対パス等
+  }
+
+  // --- 追加：モジュール化されたSVGレンダラーを先に試す ---
+  if (s && s.indexOf('svg:') === 0 && window.SVG && Array.isArray(window.SVG._renderers)) {
+    var spec = s.slice(4);
+    for (var i = 0; i < window.SVG._renderers.length; i++) {
+      try {
+        var node = window.SVG._renderers[i](spec);
+        if (node) { assetEl.appendChild(node); return; }
+      } catch(e) { /* 個別レンダラーの例外は握りつぶし */ }
+    }
+  }
+  // --- ここまで ---
+  if (s.indexOf('svg:clock-') === 0) {
+    var t1 = nums(s.slice('svg:clock-'.length));
+    assetEl.appendChild(drawClock(t1[0]||0, t1[1]||0));
+
+  } else if (s.indexOf('svg:rect-') === 0) {
+    var t2 = nums(s.slice('svg:rect-'.length));
+    assetEl.appendChild(drawRect(t2[0]||1, t2[1]||1));
+
+  } else if (s.indexOf('svg:bar-graph-') === 0) {
+    var arr = nums(s.slice('svg:bar-graph-'.length));
+    assetEl.appendChild(drawBarGraph([arr[0]||0, arr[1]||0, arr[2]||0]));
+
+  } else if (s.indexOf('svg:ruler-') === 0) {
+    // 例: "svg:ruler-350-280-300-330|labels:ア,イ,ウ|every:50|style:arrowtop|range:200-400"
+    const raw = String(id||'').trim();
+    const parts = raw.split('|');
+    const head = parts[0].split('-');
+    const totalCm = parseInt(head[1]||120,10);               // ← 修正済み
+    const pins = head.slice(2).map(v=>parseInt(v,10)).filter(n=>isFinite(n)); // ← 修正済み
+
+    let labels = [];
+    const opt = {};
+    parts.slice(1).forEach(p=>{
+      if (p.indexOf('labels:')===0) labels = p.slice(7).split(',').map(s=>s.trim());
+      if (p.indexOf('every:')===0)  opt.every = parseInt(p.slice(6),10);
+      if (p.indexOf('style:')===0)  opt.style = p.slice(6).trim();
+      if (p.indexOf('range:')===0) {
+        const m = p.slice(6).split('-').map(x=>parseInt(x,10));
+        if (m.length===2 && isFinite(m[0]) && isFinite(m[1])) opt.range = { start:m[0], end:m[1] };
+      }
+    });
+
+    assetEl.appendChild(drawRuler(totalCm, pins, labels, opt));
+  }else if (s.indexOf('img:') === 0) {
+    var raw = id.slice(4).trim(); // 大文字ラベル保持
+    var url = normalizeImageUrl(raw);
+
+    var img = document.createElement('img');
+    img.src = url;
+    img.alt = '図';
+    img.loading = 'lazy';
+    img.decoding = 'async';
+    img.referrerPolicy = 'no-referrer';
+    img.style.maxWidth = '100%';
+    img.style.height = 'auto';
+    img.style.display = 'block';
+    img.style.margin = '8px 0';
+    img.onerror = function(){
+      var note = document.createElement('div');
+      note.textContent = '画像を読み込めませんでした：' + url;
+      note.style.fontSize = '0.9em';
+      note.style.color = '#b00';
+      assetEl.innerHTML = '';
+      assetEl.appendChild(note);
+    };
+    assetEl.appendChild(img);
+  }
+}
+
+
+
+function drawClock(h, m) {
+  var NS = 'http://www.w3.org/2000/svg';
+  var svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 100 100');
+  svg.setAttribute('width', '160');
+  svg.setAttribute('height', '160');
+
+  var face = document.createElementNS(NS, 'circle');
+  face.setAttribute('cx', '50'); face.setAttribute('cy', '50');
+  face.setAttribute('r', '46');  face.setAttribute('fill', '#fff');
+  face.setAttribute('stroke', '#333'); face.setAttribute('stroke-width', '2');
+  svg.appendChild(face);
+
+  var marks = [0,90,180,270];
+  for (var i=0;i<marks.length;i++){
+    var deg = marks[i];
+    var rad = (Math.PI/180) * (deg - 90);
+    var x1 = 50 + 40 * Math.cos(rad), y1 = 50 + 40 * Math.sin(rad);
+    var x2 = 50 + 46 * Math.cos(rad), y2 = 50 + 46 * Math.sin(rad);
+    var t = document.createElementNS(NS, 'line');
+    t.setAttribute('x1', x1); t.setAttribute('y1', y1);
+    t.setAttribute('x2', x2); t.setAttribute('y2', y2);
+    t.setAttribute('stroke', '#666'); t.setAttribute('stroke-width', '2');
+    svg.appendChild(t);
+  }
+
+  var ma = (m / 60) * 360 - 90;
+  var mr = (Math.PI / 180) * ma;
+  var min = document.createElementNS(NS, 'line');
+  min.setAttribute('x1', '50'); min.setAttribute('y1', '50');
+  min.setAttribute('x2', String(50 + 38 * Math.cos(mr)));
+  min.setAttribute('y2', String(50 + 38 * Math.sin(mr)));
+  min.setAttribute('stroke', '#1f4fbf');
+  min.setAttribute('stroke-width', '3');
+  min.setAttribute('stroke-linecap', 'round');
+  svg.appendChild(min);
+
+  var ha = ((h % 12) / 12) * 360 + (m / 60) * 30 - 90;
+  var hr = (Math.PI / 180) * ha;
+  var hour = document.createElementNS(NS, 'line');
+  hour.setAttribute('x1', '50'); hour.setAttribute('y1', '50');
+  hour.setAttribute('x2', String(50 + 26 * Math.cos(hr)));
+  hour.setAttribute('y2', String(50 + 26 * Math.sin(hr)));
+  hour.setAttribute('stroke', '#b91c1c');
+  hour.setAttribute('stroke-width', '4');
+  hour.setAttribute('stroke-linecap', 'round');
+  svg.appendChild(hour);
+
+  var pin = document.createElementNS(NS, 'circle');
+  pin.setAttribute('cx', '50'); pin.setAttribute('cy', '50');
+  pin.setAttribute('r', '2.8'); pin.setAttribute('fill', '#333');
+  svg.appendChild(pin);
+
+  return svg;
+}
+
+function drawRect(w, h) {
+  var NS = 'http://www.w3.org/2000/svg';
+  var svg = document.createElementNS(NS,'svg');
+  svg.setAttribute('viewBox','0 0 200 160');
+  svg.setAttribute('width','220'); svg.setAttribute('height','160');
+
+  var x = 28, y = 30;
+  var unit = 18;
+  var W = Math.max(1, w) * unit;
+  var H = Math.max(1, h) * unit;
+
+  var rect = document.createElementNS(NS,'rect');
+  rect.setAttribute('x', x); rect.setAttribute('y', y);
+  rect.setAttribute('width', W); rect.setAttribute('height', H);
+  rect.setAttribute('fill','#dbeafe');
+  rect.setAttribute('stroke','#2563eb');
+  rect.setAttribute('stroke-width','3');
+  svg.appendChild(rect);
+
+  var topText = document.createElementNS(NS,'text');
+  topText.setAttribute('x', x + W/2); topText.setAttribute('y', y - 8);
+  topText.setAttribute('text-anchor','middle'); topText.setAttribute('font-size','14');
+  topText.textContent = w + 'cm'; svg.appendChild(topText);
+
+  var leftText = document.createElementNS(NS,'text');
+  leftText.setAttribute('x', x - 10); leftText.setAttribute('y', y + H/2 + 5);
+  leftText.setAttribute('text-anchor','end'); leftText.setAttribute('font-size','14');
+  leftText.textContent = h + 'cm'; svg.appendChild(leftText);
+
+  return svg;
+}
+
+function drawBarGraph(vals) {
+  var NS = 'http://www.w3.org/2000/svg';
+  var svg = document.createElementNS(NS,'svg');
+  svg.setAttribute('viewBox','0 0 140 110');
+  svg.setAttribute('width','200');
+  svg.setAttribute('height','140');
+
+  var arr = Array.isArray(vals) ? vals : [];
+  var clean = [];
+  for (var i=0;i<arr.length;i++){
+    var n = Number(arr[i]);
+    clean.push((isFinite(n) && n >= 0) ? n : 0);
+  }
+  var data = clean.length ? clean : [0,0,0];
+
+  var log10 = Math.log10 || function(x){ return Math.log(x) / Math.LN10; };
+  function niceCeil(x) {
+    var v = x > 0 ? x : 1;
+    var pow = Math.pow(10, Math.floor(log10(v)));
+    var n = v / pow;
+    var m = (n <= 1) ? 1 : (n <= 2) ? 2 : (n <= 5) ? 5 : 10;
+    return m * pow;
+  }
+
+  var rawMax = 1;
+  for (i=0;i<data.length;i++){ if (data[i] > rawMax) rawMax = data[i]; }
+  var niceMax = niceCeil(rawMax);
+  var ticks = 5;
+  var step = niceMax / ticks;
+
+  var left = 24, bottom = 95, top = 20, right = 130;
+  var height = bottom - top;
+
+  var xAxis = document.createElementNS(NS,'line');
+  xAxis.setAttribute('x1', left); xAxis.setAttribute('y1', bottom);
+  xAxis.setAttribute('x2', right); xAxis.setAttribute('y2', bottom);
+  xAxis.setAttribute('stroke', '#333'); xAxis.setAttribute('stroke-width', '1.5');
+  svg.appendChild(xAxis);
+
+  var yAxis = document.createElementNS(NS,'line');
+  yAxis.setAttribute('x1', left); yAxis.setAttribute('y1', bottom);
+  yAxis.setAttribute('x2', left); yAxis.setAttribute('y2', top);
+  yAxis.setAttribute('stroke', '#333'); yAxis.setAttribute('stroke-width', '1.5');
+  svg.appendChild(yAxis);
+
+  for (i=0;i<=ticks;i++){
+    var v = i * step;
+    var ratio = niceMax > 0 ? (v / niceMax) : 0;
+    var y = bottom - ratio * height;
+
+    var grid = document.createElementNS(NS,'line');
+    grid.setAttribute('x1', left); grid.setAttribute('y1', y);
+    grid.setAttribute('x2', right); grid.setAttribute('y2', y);
+    grid.setAttribute('stroke', i===0 ? '#666' : '#e5e7eb');
+    grid.setAttribute('stroke-dasharray', i===0 ? '0' : '3,3');
+    grid.setAttribute('stroke-width', i===0 ? '1.2' : '1');
+    svg.appendChild(grid);
+
+    var tick = document.createElementNS(NS,'line');
+    tick.setAttribute('x1', left-3); tick.setAttribute('y1', y);
+    tick.setAttribute('x2', left);   tick.setAttribute('y2', y);
+    tick.setAttribute('stroke', '#333'); tick.setAttribute('stroke-width', '1');
+    svg.appendChild(tick);
+
+    var label = document.createElementNS(NS,'text');
+    label.setAttribute('x', left-6); label.setAttribute('y', y+3);
+    label.setAttribute('text-anchor', 'end');
+    label.setAttribute('font-size', '10');
+    label.textContent = (Math.round(v*10)/10);
+    svg.appendChild(label);
+  }
+
+  var barW = 20;
+  var names = ['A','B','C','D'];
+  for (i=0;i<Math.min(4, data.length); i++){
+    try {
+      var val = data[i];
+      var x = left + 12 + i * 32;
+      var ratio2 = niceMax > 0 ? (val / niceMax) : 0;
+      var h = Math.max(0, Math.min(1, ratio2)) * height;
+
+      var bar = document.createElementNS(NS,'rect');
+      bar.setAttribute('x', String(x));
+      bar.setAttribute('y', String(bottom - h));
+      bar.setAttribute('width', String(barW));
+      bar.setAttribute('height', String(h));
+      bar.setAttribute('fill','#cfe0ff');
+      bar.setAttribute('stroke','#3b82f6');
+      svg.appendChild(bar);
+
+      var label2 = document.createElementNS(NS,'text');
+      label2.setAttribute('x', String(x + barW/2));
+      label2.setAttribute('y','105');
+      label2.setAttribute('text-anchor','middle');
+      label2.setAttribute('font-size','10');
+      label2.textContent = names[i] || '';
+      svg.appendChild(label2);
+    } catch(_){}
+  }
+
+  return svg;
+}
+
+// ===== 初期化 =====
+function initUI() {
+  // 要素参照
+  stemEl       = document.getElementById('stem');
+  assetEl      = document.getElementById('asset');
+  choicesEl    = document.getElementById('choices');
+  progressEl   = document.getElementById('progress');
+  skillLabelEl = document.getElementById('skillLabel');
+  submitBtn    = document.getElementById('submitBtn');
+
+  // 画面
+  showScreen('login');
+
+  // クリック系
+  var loginBtn  = document.getElementById('loginBtn');
+  var startAny  = document.getElementById('startAny');
+  var nextBtn   = document.getElementById('nextBtn');
+  var finishBtn = document.getElementById('finishBtn');
+  var homeBtn   = document.getElementById('homeBtn');
+
+  if (loginBtn)  loginBtn.onclick  = handleLoginClick;
+  if (startAny)  startAny.onclick  = function(){ startQuiz(''); };
+  if (homeBtn)   homeBtn.onclick   = function(){ showScreen('home'); };
+
+  if (choicesEl) {
+    choicesEl.addEventListener('click', function(e){
+      var t = e && e.target ? e.target : null;
+      var btn = null;
+      if (t && typeof t.closest === 'function') {
+        btn = t.closest('.choice');
+      } else if (t && t.parentElement && t.parentElement.classList && t.parentElement.classList.contains('choice')) {
+        btn = t.parentElement;
+      }
+      if (!btn) return;
+
+      var buttons = choicesEl.querySelectorAll('.choice');
+      for (var i=0;i<buttons.length;i++){
+        buttons[i].classList.remove('selected');
+        // ★ すべて未選択に
+        buttons[i].setAttribute('aria-checked','false');
+      }
+      btn.classList.add('selected');
+      // ★ 今押したボタンだけ選択状態に
+      btn.setAttribute('aria-checked','true');
+
+      state.session.selected = btn.getAttribute('data-key');
+
+
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.classList.remove('btn-disabled');
+        submitBtn.removeAttribute('aria-disabled');
+        submitBtn.removeAttribute('disabled');
+      }
+    }, false);
+  }
+
+  if (submitBtn) {
+    submitBtn.addEventListener('click', function(){
+      // ★ 二重送信ガード：すでに無効なら何もしない
+      if (submitBtn.disabled) return;
+      submitBtn.disabled = true;
+      submitBtn.classList.add('btn-disabled');
+      submitBtn.setAttribute('aria-disabled','true');
+
+      var dbg = document.getElementById('debug');
+      function showDebug(obj){
+        if (!dbg) return;
+        dbg.style.display = 'block';
+        dbg.textContent = (typeof obj === 'string') ? obj : JSON.stringify(obj, null, 2);
+      }
+
+      try {
+        if (!state.session.selected) { toast('えらんでから おしてね'); return; }
+        var q = state.session.items[state.session.idx];
+        if (!q) { showDebug('内部エラー: 問題データなし'); toast('内部エラー'); return; }
+
+        var elapsed = Date.now() - state.session.startedAt;
+        var dispIdx = ['A','B','C','D'].indexOf(state.session.selected);
+        var chosenOriginal = (q.displayToOriginal && dispIdx >= 0) ? q.displayToOriginal[dispIdx] : state.session.selected;
+        var correct = (chosenOriginal === q.correct);
+
+        document.getElementById('resultText').textContent = correct ? 'せいかい！' : 'ざんねん…';
+
+        var reasons = (q.reasons || {});
+        var reason = reasons[chosenOriginal] || '';
+        var why = correct ? 'よくできました！'
+                          : (reason ? ('まちがえの理由：' + reason) : 'もういちど かんがえてみよう');
+        document.getElementById('reasons').textContent = why;
+
+        showScreen('result');
+
+        google.script.run
+          .withFailureHandler(function(err){
+            showDebug({ logResponseError: safeMsg(err), q: q, selected: state.session.selected });
+            toast('ログ保存エラー');
+            // ★ 失敗時のみボタンを復帰
+            submitBtn.disabled = false;
+            submitBtn.classList.remove('btn-disabled');
+            submitBtn.removeAttribute('aria-disabled');
+            submitBtn.removeAttribute('disabled');
+          })
+
+          .logResponse({
+            user_id: state.user_id,
+            qid: q.qid,
+            chosen: chosenOriginal,   // 表示レター(A/B/C/D)→元のレターに戻してログ
+            correct: correct,
+            elapsed_ms: elapsed,
+            device: navigator.userAgent
+          });
+
+        if (correct) state.session.correctCount++;
+      } catch (e) {
+        var dbg2 = document.getElementById('debug');
+        if (dbg2) { dbg2.style.display='block'; dbg2.textContent = safeMsg(e); }
+        toast('エラーが発生しました');
+      }
+    }, false);
+  }
+
+  if (nextBtn) nextBtn.onclick = function(){
+    state.session.idx++;
+    if (state.session.idx >= state.session.items.length) {
+      google.script.run
+        .withSuccessHandler(function(s){
+          document.getElementById('summary').innerHTML =
+            'きょう（' + s.date + '）は <strong>' + s.done + '</strong> 問 といて、<strong>' + s.corrects + '</strong> 問 せいかい！';
+          renderPixelSummary();
+          showScreen('summary');
+        })
+        .withFailureHandler(function(err){ toast('サマリー取得エラー: ' + safeMsg(err)); })
+        .getTodaySummary(state.user_id);
+    } else {
+      showQuestion(); showScreen('quiz');
+    }
+  };
+
+  if (finishBtn) finishBtn.onclick = function(){
+    google.script.run
+      .withSuccessHandler(function(s){
+        document.getElementById('summary').innerHTML =
+          'きょう（' + s.date + '）は <strong>' + s.done + '</strong> 問 といて、<strong>' + s.corrects + '</strong> 問 せいかい！';
+        renderPixelSummary();
+        showScreen('summary');
+      })
+      .withFailureHandler(function(err){ toast('サマリー取得エラー: ' + safeMsg(err)); })
+      .getTodaySummary(state.user_id);
+  };
+
+  // === キーボード操作 ===
+  // 1〜4, A〜D で選択、Enterで送信
+  document.addEventListener('keydown', function(e){
+    // クイズ画面の時だけ反応
+    var quizActive = document.getElementById('screen-quiz');
+    if (!quizActive || !quizActive.classList.contains('active')) return;
+
+    var mapNum = {'1':'A','2':'B','3':'C','4':'D'};
+    var sel = null;
+    if (mapNum[e.key]) sel = mapNum[e.key];
+    else {
+      var k = String(e.key||'').toUpperCase();
+      if (['A','B','C','D'].indexOf(k) >= 0) sel = k;
+    }
+
+    if (sel) {
+      var btn = choicesEl && choicesEl.querySelector('.choice[data-key="'+sel+'"]');
+      if (btn) btn.click();
+    } else if (e.key === 'Enter' && submitBtn && !submitBtn.disabled) {
+      submitBtn.click();
+    }
+  });
+
+}
+
+// DOM準備後に初期化
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initUI);
+} else {
+  initUI();
+}
+
+function renderPixelSummary(){
+  var host = document.getElementById('pixelmap');
+  if (!host) return;
+  host.innerHTML = '';
+
+  var cols = 16, rows = 15, total = cols * rows;
+  var grid = document.createElement('div');
+  grid.style.display = 'grid';
+  grid.style.gridTemplateColumns = 'repeat(' + cols + ', 12px)';
+  grid.style.gap = '3px';
+  grid.style.marginTop = '12px';
+
+  // まずは白マスを配置
+  var cells = [];
+  for (var i = 0; i < total; i++) {
+    var cell = document.createElement('div');
+    cell.style.width = '12px';
+    cell.style.height = '12px';
+    cell.style.background = '#ffffff';         // 未完了 = 白
+    cell.style.border = '1px solid #e5e7eb';
+    cell.style.borderRadius = '2px';
+    grid.appendChild(cell);
+    cells.push(cell);
+  }
+  host.appendChild(grid);
+
+  // つぎに「今日やったセル」を 70% で色のせ
+  google.script.run
+    .withSuccessHandler(function(res){
+      if (!res || !res.ok) return;
+      var lv = res.levels || [];
+      var n = Math.min(total, lv.length);
+      for (var i = 0; i < n; i++) {
+        if (lv[i] === 1) {
+          cells[i].style.background = '#3b82f6'; // とりあえず青
+          cells[i].style.opacity = '0.7';        // 70%（今日やった）
+          cells[i].style.borderColor = '#93c5fd';
+        }
+      }
+    })
+    .withFailureHandler(function(err){ /* サイレント */ })
+    .getPixelOverlayToday(state.user_id);
+}
+</script>

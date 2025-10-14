@@ -1,0 +1,39 @@
+<script>
+(function (global) {
+  var NS = 'http://www.w3.org/2000/svg';
+
+  function el(tag, attrs) {
+    var n = document.createElementNS(NS, tag);
+    attrs = attrs || {};
+    for (var k in attrs) {
+      if (k === 'text') n.textContent = attrs[k];
+      else n.setAttribute(k, String(attrs[k]));
+    }
+    return n;
+  }
+  function svg(w, h) {
+    return el('svg', { viewBox: '0 0 ' + w + ' ' + h, width: '100%', height: '100%', class: 'svg-root' });
+  }
+  function line(x1, y1, x2, y2, a) { a = a || {}; a.x1=x1; a.y1=y1; a.x2=x2; a.y2=y2; return el('line', a); }
+  function circle(cx, cy, r, a) { a=a||{}; a.cx=cx; a.cy=cy; a.r=r; return el('circle', a); }
+  function text(x, y, s, a) {
+    a = a || {};
+    a.x = x; a.y = y; a.text = s;
+    if (!('text-anchor' in a)) a['text-anchor'] = 'middle';
+    if (!('dominant-baseline' in a)) a['dominant-baseline'] = 'middle';
+    return el('text', a);
+  }
+
+  var SVG = global.SVG || (global.SVG = {});
+  SVG.NS = NS;
+  SVG.el = el;
+  SVG.svg = svg;
+  SVG.line = line;
+  SVG.circle = circle;
+  SVG.text = text;
+
+  // --- レンダラー登録口（関数を積むだけの超シンプルなレジストリ）---
+  SVG._renderers = SVG._renderers || [];
+  SVG.register = function (fn) { SVG._renderers.push(fn); };
+})(window);
+</script>

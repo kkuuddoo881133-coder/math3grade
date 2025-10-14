@@ -1,0 +1,134 @@
+<!-- Internal memo only -->
+<pre>
+mkdir backup-$(date +"%Y%m%d-%H%M")
+cd backup-$(date +"%Y%m%d-%H%M")
+clasp login          # 初回のみ
+clasp clone 1unVpQyA5afEmUonCBZBjSUdp1cxVgMt8Xt13NhUnCcEMURZmXxYBfJVj;
+
+clasp status
+clasp pull
+clasp push
+</pre>
+
+分割のおすすめ構成（拡張子は全部 .html）
+index.html           … 画面の土台
+styles.html          … CSS
+app.html             … 画面制御／renderAsset の本体
+
+svg_common.html      … SVGユーティリティ（createSvgEl、テーマ色、フォント等）
+svg_clock.html       … 時計（match/parse/render を登録）
+svg_ruler.html       … 定規（目盛）
+svg_numberline.html  … 数直線（←新規）
+svg_bargraph.html    … 棒グラフ（動物/出欠の2データ対応）
+svg_fraction.html    … 分数バー
+svg_beaker.html      … 1Lメモリの容器
+svg_scale.html       … はかり（文字板/針）
+svg_balance.html     … てんびん
+svg_circle.html      … 円（名称/半径/直径/弦/パック）
+svg_columnmul.html   … かけ算の筆算レイアウト（1桁/2桁）
+svg_triangle.html    … 三角形（選択・作図補助）
+
+
+index.html の <head> or <body> 冒頭で
+<?!= include('svg_common') ?> → 各 svg_*.html を順に include → 最後に <?!= include('app') ?>
+の順で読み込むだけで OK（app.html の renderAsset から使える）。
+
+それぞれの svg_*.html では グローバル登録にするのがラク。
+例）window.SVG_RENDERERS['clock'] = { match: …, parse: …, render: … }
+app.html 側の renderAsset() は SVG_RENDERERS を総当たりでマッチ→render するだけ。
+
+いま必要な SVG モジュール（作るべきものの棚卸し）
+
+あなたの問題データに出てくるプレフィックスから逆引きした「必要セット」。上から着手優先度順です。
+
+clock … svg:clock-7-30 など（時刻）
+
+ruler … svg:ruler-...|labels:...（メモリ読み）
+
+numberline … need_svg:numberline タグの一式（区間分割・位置・間の判断）
+
+columnmul … svg:colmul-24x3, colmul2-12x23（筆算の枠と繰り上がり欄）
+
+circle … circle-names-1, circle-radius-4cm, circle-chords-longest, circle-pack-2x3-r4, circle-3inrow-d36
+
+fraction … frac-bar-1of5/2of5/3of4, frac-choose-...（塗り分け）
+
+beaker … beaker-2of5/3of4/1of8, beaker-scale-5（容量メモリ）
+
+scale … scale-1kg-needle-340, scale-choose-..., scale-2kg-needle-1200（円形はかり）
+
+balance … balance-text-eraser30-pencil18, balance-which-3g（てんびん）
+
+bargraph … bar-animal-class3, bar-attendance-week（読み・差・合計・書き足し）
+
+triangle … tri-choose-set1, construct-4-3-3, circle-2pts-center-2cm, circle-eq-edges-r2
+
+1〜4 を先に仕上げると、小3の大半の単元がすぐ教材レベルになります。
+
+教科書レベルの見た目にするための「共通デザイン規約」
+
+svg_common.html に定義して全モジュールで使い回すのがおすすめ。
+
+フォント: "Noto Sans JP", "Hiragino Sans", "Yu Gothic", sans-serif（本文 14–16px、ラベル 12px、指数/単位は 10–12px）
+
+ストローク: stroke="#333" / stroke-width=1.5（小さな目盛は 1.0、補助線は 0.75、破線は stroke-dasharray="4 4"）
+
+色: 主線 #333、補助線 #9AA4AE、強調 #2E7CF6、正解例/塗り #8CC8FF（淡色 20–30%）
+
+端処理: stroke-linecap="round", stroke-linejoin="round", shape-rendering="crispEdges"（メモリや針をくっきり）
+
+余白: 図ごとに viewBox を少し広めに（上下左右 8–12px）。数字や単位が切れないように。
+
+グリッド: 1px 単位でスナップ（小数座標を避け、印刷でにじみにくく）。
+
+日本語の約物: 単位の前に半角スペース入れず、4cm のように詰める（全教材で統一）。
+
+アクセシビリティ: コントラスト比 4.5:1 以上の配色、色のみに頼らず 形/パターン 併用（塗り分けの斜線、点線など）。
+
+印刷: vector-effect="non-scaling-stroke" を基本に、A4 印刷でも線幅が痩せないよう調整。
+
+実装の最小ステップ（コードは出さずに段取りだけ）
+
+svg_common.html を作る（ユーティリティ関数・テーマ・フォント設定）。
+
+app.html の renderAsset() を **「レジストリ方式（SVG_RENDERERS を総当たり）」**に変更。
+
+svg_clock.html と svg_ruler.html を切り出し（既存の関数を移植）。
+
+svg_numberline.html を新規作成（等間隔分割、ラベル、点や区間のマーキング、近い目盛の強調）。
+
+svg_columnmul.html を新規作成（位取りの罫線、繰り上がり欄、部分積の配置を自動レイアウト）。
+
+既存データの assets 文字列が 全部レンダリングできるかをチェック。
+
+見た目チューニング（太さ・余白・文字位置の微調整）。
+
+仕上げに 印刷テスト（Chrome の印刷プレビューで A4 縮小印刷、枠が欠けないかを見る）。
+
+仕様の決め方（モジュールごとの“受け口”）
+
+すべて 「assets 文字列 → match → parse → render」 の流れで統一。
+
+例）svg:ruler-350-280-300-330|labels:ア,イ,ウ
+
+type=ruler、主目盛/範囲は固定（0–?）にせず、軸長や目盛間隔は parse で決める
+
+labels は可変長で受ける（未指定なら非表示）
+
+例）svg:clock-8-50 → h=8, m=50
+
+例）svg:colmul-35x7 → left=35, right=7, carry=true（carry は自動判断でも良い）
+
+例）svg:bar-attendance-week → データは モジュール内のプリセットを使う（id で切替）
+
+ここからどう手伝える？
+
+設計の確定：上の構成で OK なら、「レジストリ方式」の renderAsset と、svg_common の中身（テーマ・ユーティリティの仕様）を先に固めよう。
+
+優先 4 モジュール（clock / ruler / numberline / columnmul）の詳細仕様（入力 → レイアウトルール → 出力の見栄え基準）を、短い表で詰める。
+
+見た目レビュー：1モジュールずつ、スクショ（または SVG ソース）を私に投げてくれれば、微調整ポイントを具体的に洗い出すよ。
+
+「まずはどれから作り込む？」の優先度は、授業での出現頻度を考えると
+ruler → numberline → clock → columnmul の順がおすすめ。
+この順で進めていけば、今ある全データの“SVG不足”もかなり解消できます。

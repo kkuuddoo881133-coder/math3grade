@@ -1,0 +1,47 @@
+<script>
+(function (SVG) {
+  function deg(a){ return a * Math.PI / 180; }
+
+  function renderClock(h, m) {
+    var W=100, H=100, cx=50, cy=50, R=46;
+    var svg = SVG.svg(W,H);
+
+    // 文字盤
+    svg.appendChild(SVG.circle(cx,cy,R,{fill:'#fff'}));
+    svg.appendChild(SVG.circle(cx,cy,R,{fill:'none',stroke:'#222', 'stroke-width':2}));
+
+    // 目盛り
+    for (var i=0;i<60;i++){
+      var a = deg(i*6-90), r1 = (i%5===0)?R-6:R-3, r2 = R-1.5;
+      svg.appendChild(SVG.line(cx+Math.cos(a)*r1, cy+Math.sin(a)*r1,
+                               cx+Math.cos(a)*r2, cy+Math.sin(a)*r2,
+                               {stroke:'#222','stroke-width':(i%5===0)?1.8:1}));
+    }
+    // 数字
+    [['12',0],['3',90],['6',180],['9',270]].forEach(function(p){
+      var a = deg(p[1]-90), rr = R-14;
+      svg.appendChild(SVG.text(cx+Math.cos(a)*rr, cy+Math.sin(a)*rr, p[0],
+        { 'font-size':10, fill:'#222'}));
+    });
+
+    // 針
+    var ma = m*6 - 90;
+    var ha = (h%12)*30 + m*0.5 - 90;
+
+    svg.appendChild(SVG.line(cx,cy, cx+Math.cos(deg(ha))*26, cy+Math.sin(deg(ha))*26,
+      {stroke:'#b91c1c','stroke-width':4,'stroke-linecap':'round'}));
+    svg.appendChild(SVG.line(cx,cy, cx+Math.cos(deg(ma))*38, cy+Math.sin(deg(ma))*38,
+      {stroke:'#0f766e','stroke-width':3,'stroke-linecap':'round'}));
+
+    svg.appendChild(SVG.circle(cx,cy,2.8,{fill:'#222'}));
+    return svg;
+  }
+
+  // レジストリに登録（マッチしなければ null）
+  SVG.register(function(spec){
+    var m = spec.match(/^clock-(\d{1,2})-(\d{1,2})$/);
+    if (!m) return null;
+    return renderClock(parseInt(m[1],10), parseInt(m[2],10));
+  });
+})(window.SVG);
+</script>

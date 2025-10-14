@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>さんすうドリル（小3）</title>
+    <style><?!= include('styles'); ?></style>
+  </head>
+
+  <body>
+    <!-- === 診断パネル === -->
+    <section id="diag" style="margin:1rem 0; padding:0.75rem; border:1px solid #ddd; border-radius:12px;">
+      <div style="font-weight:600;">診断 <span id="build" style="font-weight:400;color:#666;">BUILD_ID: 2025-09-13-DBG-01</span></div>
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.5rem;">
+        <button id="btn-ping" type="button">接続チェック（ping）</button>
+        <button id="btn-hc"   type="button">ヘルスチェック</button>
+        <button id="btn-lite" type="button">かんたんテスト（数値）</button>
+      </div>
+      <pre id="diag-out" style="white-space:pre-wrap; margin-top:0.5rem;"></pre>
+    </section>
+
+    <!-- トースト & デバッグ（※重複禁止・1か所だけ） -->
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <pre id="debug" style="white-space:pre-wrap;font-size:12px;color:#b91c1c;background:#fff0f0;border:1px solid #fca5a5;padding:8px;border-radius:8px;display:none"></pre>
+
+    <!-- === アプリ本体（そのまま） === -->
+    <main id="app">
+      <section id="screen-login" class="screen active">
+        <h1>さんすうドリル（小3）</h1>
+        <p>ニックネームと4けたのPINをいれてね。</p>
+        <div class="card">
+          <label>ニックネーム</label><br />
+          <input id="nickname" placeholder="たろう" />
+          <br /><br />
+          <label>PIN</label><br />
+          <input id="pin" placeholder="1234" maxlength="4" />
+          <br /><br />
+          <button id="loginBtn" class="primary" type="button">はじめる</button>
+        </div>
+        <div id="health"></div>
+      </section>
+
+      <section id="screen-home" class="screen">
+        <h2>きょうの もくひょう</h2>
+        <div class="cards" id="domains"></div>
+        <button id="startAny" type="button">まよったら おまかせ5問</button>
+      </section>
+
+      <section id="screen-quiz" class="screen">
+        <div class="status">
+          <span id="progress">1 / 5</span>
+          <span id="skillLabel">スキル：</span>
+        </div>
+        <div id="stem"></div>
+        <div id="asset"></div>
+        <div id="choices"></div>
+        <button id="submitBtn" type="button" disabled>こたえを きめる</button>
+      </section>
+
+      <section id="screen-result" class="screen">
+        <h2>けっか</h2>
+        <p id="resultText"></p>
+        <div id="reasons"></div>
+        <div class="actions">
+          <button id="nextBtn" type="button">つぎの もんだい</button>
+          <button id="finishBtn" type="button">きょうは おしまい</button>
+        </div>
+      </section>
+
+      <section id="screen-summary" class="screen">
+        <h2>きょうのまとめ</h2>
+        <div id="summary"></div>
+        <div id="pixelmap" aria-label="ピクセルアートのプレビュー"></div>
+        <button id="homeBtn" type="button">ホームにもどる</button>
+      </section>
+    </main>
+
+    <!-- === 診断用スクリプト（安全＆詳細表示） === -->
+    <script>
+    (function () {
+      function out(obj) {
+        const el = document.getElementById('diag-out');
+        if (!el) return;
+        try { el.textContent = JSON.stringify(obj, null, 2); }
+        catch(e){ el.textContent = String(obj); }
+      }
+      function busy(btn, on) {
+        if (!btn) return;
+        if (on) {
+          // 初回だけ元のラベルを記憶
+          if (!btn.dataset.normalLabel) btn.dataset.normalLabel = btn.textContent;
+          btn.disabled = true;
+          btn.textContent = btn.dataset.busyLabel || '処理中…';
+        } else {
+          btn.disabled = false;
+          // 記憶していたラベルに戻す
+          btn.textContent = btn.dataset.normalLabel || btn.textContent;
+        }
+      }
+
+      function hasGAS() {
+        return !(typeof google === 'undefined' || !google.script || !google.script.run);
+      }
+      function onSuccess(btn, label) {
+        return function (res) {
+          const payload = {
+            ok: res != null,
+            label: label,
+            typeof: typeof res,
+            value: res
+          };
+          if (res == null) {
+            payload.hint = '戻り値が null/undefined。古いデプロイURLや関数名の食い違いの可能性。';
+          }
+          out(payload);
+          busy(btn, false);
+        };
+      }
+      function onFailure(btn, label) {
+        return function (err) {
+          out({ ok:false, label:label, error:String(err) });
+          busy(btn, false);
+        };
+      }
+      function pingCheck() {
+        const btn = document.getElementById('btn-ping'); busy(btn,true);
+        if (!hasGAS()) { out({ ok:false, error:'google.script.run なし' }); busy(btn,false); return; }
+        google.script.run
+          .withSuccessHandler(onSuccess(btn, 'pingDiag'))
+          .withFailureHandler(onFailure(btn,  'pingDiag'))
+          .pingDiag();
+      }
+      function healthCheck() {
+        const btn = document.getElementById('btn-hc'); busy(btn,true);
+        if (!hasGAS()) { out({ ok:false, error:'google.script.run なし' }); busy(btn,false); return; }
+        google.script.run
+          .withSuccessHandler(onSuccess(btn, 'healthCheckDiag'))
+          .withFailureHandler(onFailure(btn,  'healthCheckDiag'))
+          .healthCheckDiag();
+      }
+      // <<< 追加：数値だけ返す最小関数 >>>
+      function liteCheck() {
+        const btn = document.getElementById('btn-lite'); busy(btn,true);
+        if (!hasGAS()) { out({ ok:false, error:'google.script.run なし' }); busy(btn,false); return; }
+        google.script.run
+          .withSuccessHandler(onSuccess(btn, 'returnNumber'))
+          .withFailureHandler(onFailure(btn,  'returnNumber'))
+          .returnNumber();
+      }
+
+      function initDiag() {
+        out({ status: '診断の準備OK', env: { hasGAS: hasGAS() } });
+        const b1 = document.getElementById('btn-ping');
+        const b2 = document.getElementById('btn-hc');
+        const b3 = document.getElementById('btn-lite');
+        if (b1) { b1.dataset.busyLabel='接続チェック中…'; b1.addEventListener('click', pingCheck); }
+        if (b2) { b2.dataset.busyLabel='ヘルスチェック中…'; b2.addEventListener('click', healthCheck); }
+        if (b3) { b3.dataset.busyLabel='テスト実行中…'; b3.addEventListener('click', liteCheck); }
+        setTimeout(() => { if (hasGAS()) liteCheck(); }, 400); // ← 自動で一番簡単なのを試す
+      }
+
+      // === 追加：サーバの版数を #build に表示する ===
+      if (hasGAS()) {
+        google.script.run
+          .withSuccessHandler(function (o) {
+            // o = { marker:'returnObject', now:'...', ver:'...' }
+            var el = document.getElementById('build');
+            if (el && o && o.ver) {
+              el.textContent = 'Server ' + o.ver + ' @ ' + o.now;
+            }
+          })
+          .withFailureHandler(function (err) {
+            // 失敗時は診断欄に出す（#build はそのまま）
+            out({ ok:false, label:'returnObject', error: String(err) });
+          })
+          .returnObject();
+      }
+
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initDiag);
+      } else {
+        initDiag();
+      }
+    })();
+    </script>
+
+    <!-- === アプリ本体スクリプト === -->
+    <?!= include('svg_common'); ?>
+    <?!= include('svg_clock'); ?>
+    <?!= include('svg_ruler'); ?>
+    <?!= include('svg_bargraph'); ?>
+    <?!= include('app'); ?>
+  </body>
+</html>

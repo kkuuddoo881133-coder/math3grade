@@ -1,0 +1,57 @@
+<script>
+(function (SVG) {
+  function renderRuler(totalCm, pins, labels, opt){
+    opt = opt || {};
+    var PAD=18, W = totalCm + PAD*2, H=70, baseY=35;
+    var svg = SVG.svg(W,H);
+
+    // 本体
+    svg.appendChild(SVG.rect ? SVG.rect(PAD, baseY, totalCm, 8, 0, 0, {fill:'#f9fafb', stroke:'#374151'}) : SVG.el('rect',{x:PAD,y:baseY,width:totalCm,height:8,fill:'#f9fafb',stroke:'#374151'}));
+
+    // 目盛り（10cmごと / 50cm太 / 100cm最太）
+    for (var x=0; x<=totalCm; x+=10){
+      var len = (x%100===0)?18:(x%50===0)?14:9;
+      svg.appendChild(SVG.line(PAD+x, baseY, PAD+x, baseY-len, {stroke:'#111'}));
+      if (x%100===0 && x>0){
+        svg.appendChild(SVG.text(PAD+x, baseY-24, (x/100)+'m', {'font-size':10, fill:'#111'}));
+      }
+    }
+    // 0の表示
+    svg.appendChild(SVG.text(PAD, baseY-24, '0', {'font-size':10, fill:'#111', 'text-anchor':'start'}));
+
+    // ピン＆ラベル
+    pins = pins || [];
+    labels = labels || [];
+    pins.forEach(function(px, i){
+      var X = PAD + px;
+      svg.appendChild(SVG.line(X, baseY+10, X, baseY-22, {stroke:'#2563eb','stroke-width':2}));
+      var label = labels[i] || '';
+      if (label){
+        svg.appendChild(SVG.text(X, baseY+24, label, {'font-size':12, fill:'#2563eb'}));
+      }
+    });
+
+    return svg;
+  }
+
+  function parse(spec){
+    // e.g. "ruler-350-280-300-330|labels:ア,イ,ウ"
+    var parts = spec.split('|');
+    var head = parts[0].split('-');
+    if (head[0] !== 'ruler') return null;
+    var total = parseInt(head[1]||120,10);
+    var pins  = head.slice(2).map(function(v){ return parseInt(v,10); }).filter(function(n){ return isFinite(n); });
+    var labels = [];
+    parts.slice(1).forEach(function(p){
+      if (p.indexOf('labels:')===0) labels = p.slice(7).split(',').map(function(s){ return s.trim(); });
+    });
+    return { total: total, pins: pins, labels: labels };
+  }
+
+  SVG.register(function(spec){
+    var p = parse(spec);
+    if (!p) return null;
+    return renderRuler(p.total, p.pins, p.labels, {});
+  });
+})(window.SVG);
+</script>
