@@ -1,0 +1,125 @@
+<script>
+(function (SVG) {
+  function formatValue(v) {
+    if (!isFinite(v)) return '';
+    var rounded = Math.round(v);
+    if (Math.abs(rounded - v) < 1e-6) v = rounded;
+    return Number(v).toLocaleString('ja-JP');
+  }
+
+  function renderNumberline(start, end, step, pins, labels, opt) {
+    opt = opt || {};
+    if (!isFinite(start) || !isFinite(end)) return null;
+    if (start === end) {
+      end = start + (step || 1);
+    }
+    if (start > end) {
+      var tmp = start; start = end; end = tmp;
+      pins = (pins || []).map(function (v) { return start + end - v; });
+    }
+
+    var PAD_X = 36;
+    var INNER_W = 360;
+    var H = 120;
+    var baseY = 68;
+    var svgW = PAD_X * 2 + INNER_W;
+    var svg = SVG.svg(svgW, H);
+
+    var total = end - start;
+    var scale = total !== 0 ? INNER_W / total : 1;
+    var axisStart = PAD_X;
+    var axisEnd = PAD_X + INNER_W;
+
+    svg.appendChild(SVG.line(axisStart, baseY, axisEnd, baseY, { stroke: '#111', 'stroke-width': 2 }));
+    svg.appendChild(SVG.el('path', { d: 'M' + axisEnd + ',' + baseY + ' l8,-5 v10 z', fill: '#111' }));
+    svg.appendChild(SVG.el('path', { d: 'M' + axisStart + ',' + baseY + ' l-8,-5 v10 z', fill: '#111' }));
+
+    var epsilon = step ? Math.abs(step) / 1000 : 0.001;
+    var tickLong = 16;
+    var labelY = baseY + 20;
+
+    if (!isFinite(step) || step <= 0) {
+      step = total / 4;
+      if (!isFinite(step) || step <= 0) step = 1;
+    }
+
+    var values = [];
+    var guard = 0;
+    for (var v = start; v <= end + epsilon; v += step) {
+      values.push(v);
+      if (++guard > 500) break;
+    }
+    if (values.length === 0 || Math.abs(values[0] - start) > epsilon) values.unshift(start);
+    if (Math.abs(values[values.length - 1] - end) > epsilon) values.push(end);
+
+    values.forEach(function (value) {
+      var x = axisStart + (value - start) * scale;
+      var isEdge = Math.abs(value - start) < epsilon || Math.abs(value - end) < epsilon;
+      var len = isEdge ? tickLong + 2 : tickLong;
+      svg.appendChild(SVG.line(x, baseY, x, baseY - len, { stroke: '#111', 'stroke-width': 1.5 }));
+      svg.appendChild(SVG.text(x, labelY, formatValue(value), {
+        'font-size': 12,
+        fill: '#111',
+        'dominant-baseline': 'hanging'
+      }));
+    });
+
+    pins = pins || [];
+    labels = labels || [];
+    var pinTop = baseY - 28;
+    var pinBottom = baseY - 6;
+    pins.forEach(function (pv, i) {
+      if (!isFinite(pv)) return;
+      if (pv < start - epsilon || pv > end + epsilon) return;
+      var x = axisStart + (pv - start) * scale;
+      svg.appendChild(SVG.line(x, pinTop, x, pinBottom, { stroke: '#2563eb', 'stroke-width': 2 }));
+      svg.appendChild(SVG.circle(x, pinTop - 4, 4, { fill: '#2563eb' }));
+      var label = labels[i] || '';
+      if (label) {
+        svg.appendChild(SVG.text(x, pinTop - 18, label, {
+          'font-size': 13,
+          fill: '#2563eb',
+          'dominant-baseline': 'alphabetic'
+        }));
+      }
+    });
+
+    return svg;
+  }
+
+  function parse(spec) {
+    var parts = spec.split('|');
+    var head = parts[0].split('-');
+    if (head[0] !== 'numberline') return null;
+    var start = parseInt(head[1], 10);
+    var end = parseInt(head[2], 10);
+
+    if (!isFinite(start) || !isFinite(end)) return null;
+
+    var step = NaN;
+    var pins = [];
+    var labels = [];
+    parts.slice(1).forEach(function (part) {
+      part = part.trim();
+      if (part.indexOf('step:') === 0) {
+        step = parseInt(part.slice(5), 10);
+      } else if (part.indexOf('pins:') === 0) {
+        pins = part.slice(5).split(',').map(function (v) {
+          var n = parseInt(v, 10);
+          return isFinite(n) ? n : null;
+        }).filter(function (n) { return n != null; });
+      } else if (part.indexOf('labels:') === 0) {
+        labels = part.slice(7).split(',').map(function (s) { return s.trim(); });
+      }
+    });
+
+    return { start: start, end: end, step: step, pins: pins, labels: labels };
+  }
+
+  SVG.register(function (spec) {
+    var p = parse(spec);
+    if (!p) return null;
+    return renderNumberline(p.start, p.end, p.step, p.pins, p.labels, {});
+  });
+})(window.SVG);
+</script>
