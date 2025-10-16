@@ -1,0 +1,90 @@
+<script>
+(function (SVG) {
+  // ---- 汎用 2列テーブル（項目 / 人数） ----
+  function renderTable2Col(rows, opt){
+    opt = opt || {};
+    var header = opt.header || ['項目', '人数'];
+    var unit   = opt.unit || '';          // '人' など
+    var pad = {l: 16, r: 16, t: 16, b: 16};
+    var rowH = 30, headH = 32, colW = opt.colW || [140, 80];
+
+    var W = pad.l + colW[0] + colW[1] + pad.r;
+    var H = pad.t + headH + rows.length * rowH + pad.b;
+
+    var svg = SVG.svg(W, H);
+
+    // 背景
+    svg.appendChild(SVG.el('rect', {x:0,y:0,width:W,height:H,fill:'#fff'}));
+
+    // 罫線 + 枠
+    var x0 = pad.l, y0 = pad.t, x1 = W - pad.r, y1 = H - pad.b;
+    // 外枠
+    svg.appendChild(SVG.el('rect', {x:x0,y:y0,width:(x1-x0),height:(y1-y0),fill:'#f9fafb',stroke:'#374151'}));
+    // ヘッダ仕切り
+    svg.appendChild(SVG.el('line', {x1:x0, y1:y0+headH, x2:x1, y2:y0+headH, stroke:'#374151'}));
+    // 縦線（列）
+    svg.appendChild(SVG.el('line', {x1:x0+colW[0], y1:y0, x2:x0+colW[0], y2:y1, stroke:'#374151'}));
+    // 行の横線
+    for (var i=0;i<rows.length;i++){
+      var y = y0 + headH + (i+1)*rowH;
+      svg.appendChild(SVG.el('line',{x1:x0,y1:y,x2:x1,y2:y,stroke:'#d1d5db'}));
+    }
+
+    // ヘッダ
+    svg.appendChild(SVG.text(x0+8, y0+headH/2+4, header[0], {'font-size':12, fill:'#111', 'text-anchor':'start'}));
+    svg.appendChild(SVG.text(x0+colW[0]+colW[1]/2, y0+headH/2+4, header[1], {'font-size':12, fill:'#111'}));
+
+    // 行データ
+    rows.forEach(function(r, i){
+      var yMid = y0 + headH + i*rowH + rowH/2 + 4;
+      var label = String(r[0]);
+      var value = (r[1] != null ? String(r[1]) : '');
+      if (unit) value += unit;
+
+      svg.appendChild(SVG.text(x0+8, yMid, label, {'font-size':12, fill:'#111', 'text-anchor':'start'}));
+      svg.appendChild(SVG.text(x0+colW[0]+colW[1]/2, yMid, value, {'font-size':12, fill:'#111'}));
+    });
+
+    return svg;
+  }
+
+  // ---- spec 文字列の解釈 ----
+  function parseTableSpec(spec){
+    // 例: "table-2col|rows:りんご=6,みかん=4,ぶどう=2|unit:人"
+    var parts = spec.split('|');
+    var head = parts[0].split('-');
+    if (head[0] !== 'table' || head[1] !== '2col') return null;
+
+    var rows = [], unit='', header=null, colW=null;
+    for (var i=1;i<parts.length;i++){
+      var p = parts[i];
+      if (p.indexOf('rows:')===0){
+        var body = p.slice(5);
+        // key=value をカンマ区切りで
+        body.split(',').forEach(function(kv){
+          var m = kv.split('=');
+          var k = m[0].trim();
+          var v = m[1] != null ? m[1].trim() : '';
+          // 数字化できれば数値に
+          var num = Number(v);
+          rows.push([k, isFinite(num)? num : v]);
+        });
+      } else if (p.indexOf('unit:')===0){
+        unit = p.slice(5).trim();
+      } else if (p.indexOf('header:')===0){
+        header = p.slice(7).split(',').map(function(s){ return s.trim(); }); // 例：header:項目,人数
+      } else if (p.indexOf('colw:')===0){
+        colW = p.slice(5).split(',').map(function(s){ return parseInt(s,10); });
+      }
+    }
+    return {rows: rows, unit: unit, header: header, colW: colW};
+  }
+
+  // ---- レジストリ登録 ----
+  SVG.register(function(spec){
+    var p = parseTableSpec(spec);
+    if (!p) return null;
+    return renderTable2Col(p.rows, { unit: p.unit, header: p.header, colW: p.colW });
+  });
+})(window.SVG);
+</script>
