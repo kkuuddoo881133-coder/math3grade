@@ -1,12 +1,14 @@
 <script>
 (function (global) {
   function init(SVG) {
-    // 汎用：棒グラフ描画
+
+    // 汎用：棒グラフ描画（修正版）
     function renderBarChart(opts){
       var cats = opts.categories, vals = opts.values, unit = opts.unit || '人';
-      var step = opts.step || 2;                 // 1目もり
-      var pad = {l: 42, r: 16, t: 16, b: 42};   // 余白
+      var step = opts.step || 2; // 1目もり
+      var pad = {l: 42, r: 16, t: 16, b: 42}; // 余白
       var W = opts.width || 360, H = opts.height || 220;
+
       var svg = SVG.svg(W, H);
       var chartW = W - pad.l - pad.r, chartH = H - pad.t - pad.b;
 
@@ -18,67 +20,90 @@
       // グリッド＆目盛りラベル
       for (var v = 0; v <= maxV; v += step) {
         var y = pad.t + chartH * (1 - v / maxV);
-        svg.appendChild(SVG.el('line', {x1: pad.l, y1: y, x2: pad.l + chartW, y2: y, stroke: '#e5e7eb', 'stroke-width': 1}));
+        svg.appendChild(SVG.el('line', {
+          x1: pad.l, y1: y, x2: pad.l + chartW, y2: y,
+          stroke: '#e5e7eb', 'stroke-width': 1
+        }));
         var label = (v === 0) ? '0' : v;
-        svg.appendChild(SVG.text(pad.l - 8, y, label, {'font-size': 11, fill:'#111', 'text-anchor':'end'}));
+        svg.appendChild(SVG.text(
+          pad.l - 8, y, label,
+          {'font-size': 11, fill:'#111', 'text-anchor':'end'}
+        ));
       }
 
       // 軸
-      svg.appendChild(SVG.el('line', {x1: pad.l, y1: pad.t, x2: pad.l, y2: pad.t + chartH, stroke:'#111', 'stroke-width': 1.5}));
-      svg.appendChild(SVG.el('line', {x1: pad.l, y1: pad.t + chartH, x2: pad.l + chartW, y2: pad.t + chartH, stroke:'#111', 'stroke-width': 1.5}));
+      svg.appendChild(SVG.el('line', {
+        x1: pad.l, y1: pad.t, x2: pad.l, y2: pad.t + chartH,
+        stroke:'#111', 'stroke-width': 1.5
+      }));
+      svg.appendChild(SVG.el('line', {
+        x1: pad.l, y1: pad.t + chartH, x2: pad.l + chartW, y2: pad.t + chartH,
+        stroke:'#111', 'stroke-width': 1.5
+      }));
 
       // 棒
       var n = cats.length;
       var gap = 12;
       var barW = (chartW - gap * (n + 1)) / n;
+
       for (var i = 0; i < n; i++) {
         var v = vals[i];
         var h = chartH * (v / maxV);
         var x = pad.l + gap + i * (barW + gap);
         var y = pad.t + chartH - h;
 
-        svg.appendChild(SVG.el('rect', {x: x, y: y, width: barW, height: h, rx: 3, ry: 3, fill: '#60a5fa'}));
-        // 値ラベル
-        svg.appendChild(SVG.text(x + barW / 2, y - 10, v + unit, {'font-size': 11, fill: '#111'}));
+        svg.appendChild(SVG.el('rect', {
+          x: x, y: y, width: barW, height: h, rx: 3, ry: 3, fill: '#60a5fa'
+        }));
+
+        // 値ラベル：上に出すと注記と重なることがあるので回避ロジック
+        var labelY = y - 10;
+        var safeTop = pad.t + 16; // チャート上端 + 注記の占有域を想定
+        var labelAttrs = {'font-size': 11, 'text-anchor':'middle', fill: '#111'};
+
+        if (labelY < safeTop) {
+          // 上に出すと近すぎる場合は、棒の**内側**に出す（読みやすいように白縁）
+          labelY = y + 14;
+          labelAttrs = {
+            'font-size': 11, 'text-anchor':'middle', fill: '#111',
+            'stroke': '#fff', 'stroke-width': 3, 'paint-order': 'stroke'
+          };
+        }
+        svg.appendChild(SVG.text(x + barW / 2, labelY, v + unit, labelAttrs));
+
         // カテゴリラベル
-        svg.appendChild(SVG.text(x + barW / 2, pad.t + chartH + 16, cats[i], {'font-size': 12, fill: '#111'}));
+        svg.appendChild(SVG.text(
+          x + barW / 2, pad.t + chartH + 16, cats[i],
+          {'font-size': 12, fill: '#111', 'text-anchor':'middle'}
+        ));
       }
 
-      // 1目もり注記
+      // 1目もり注記：チャートの**外（上マージン内）**に移動して被りを防ぐ
       if (opts.showScaleNote !== false) {
-        svg.appendChild(SVG.text(W - 8, pad.t + 12, '1目もり=' + step + unit, {'font-size': 11, fill:'#374151', 'text-anchor':'end'}));
+        var noteY = Math.max(12, pad.t - 6); // 余白内に固定
+        svg.appendChild(SVG.text(
+          W - 8, noteY, '1目もり=' + step + unit,
+          {'font-size': 11, fill:'#374151', 'text-anchor':'end'}
+        ));
       }
-
       return svg;
     }
 
-    // レジストリ登録：既存IDに合わせて分岐
+    // 既存レジストリはそのまま
     SVG.register(function(spec){
-      // ① 動物アンケート（クラス3）
-      //   - 正答要件：
-      //     ・いちばん多い→「いぬ」
-      //     ・1目もり=2人
-      //     ・「ねこ」は「いぬ」より4人少ない
       if (spec === 'bar-animal-class3' || spec === 'bar:animal-class3') {
         var cats = ['いぬ','ねこ','うさぎ','その他'];
-        var vals = [12, 8, 6, 4]; // 差（いぬ-ねこ）= 4、1目もり=2人
+        var vals = [12, 8, 6, 4];
         return renderBarChart({categories: cats, values: vals, step: 2, unit: '人'});
       }
-
-      // ② 欠席者（週）
-      //   - 正答要件：
-      //     ・金曜日 = 12人（→ 1目もり=2人なら 6目もり）
-      //     ・月曜日 = 8人
-      //     ・いちばん多い→「水曜日」
-      //     ・合計 = 40人
       if (spec === 'bar-attendance-week' || spec === 'bar:attendance-week') {
         var catsW = ['月','火','水','木','金'];
-        var valsW = [8, 6, 14, 0, 12]; // 合計 8+6+14+0+12 = 40
+        var valsW = [8, 6, 14, 0, 12];
         return renderBarChart({categories: catsW, values: valsW, step: 2, unit: '人', showScaleNote: true});
       }
-
-      return null; // 非対応
+      return null;
     });
+
   }
 
   if (global.SVG && typeof global.SVG.register === 'function') {
