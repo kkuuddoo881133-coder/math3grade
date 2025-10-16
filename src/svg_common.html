@@ -35,5 +35,19 @@
   // --- レンダラー登録口（関数を積むだけの超シンプルなレジストリ）---
   SVG._renderers = SVG._renderers || [];
   SVG.register = function (fn) { SVG._renderers.push(fn); };
+
+  // svg_common が後から読み込まれた場合でも、保留中の初期化関数を実行する
+  var pending = global._svgPendingModules;
+  if (Array.isArray(pending) && pending.length) {
+    for (var i = 0; i < pending.length; i++) {
+      try { pending[i](SVG); }
+      catch (e) {
+        if (typeof console !== 'undefined' && console && console.error) {
+          console.error('SVG pending module failed:', e);
+        }
+      }
+    }
+    pending.length = 0;
+  }
 })(window);
 </script>
