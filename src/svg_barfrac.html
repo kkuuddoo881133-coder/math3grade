@@ -1,0 +1,105 @@
+<!-- src/svg_barfrac.html -->
+<script>
+/* ========= 分数（棒図）アセット ========= */
+/* 依存: window.SVG（共通ヘルパ） */
+(function (SVG) {
+  var COLOR_FILL  = '#93c5fd';
+  var COLOR_LINE  = '#374151';
+  var COLOR_TEXT  = '#111';
+
+  function renderBarFraction(nParts, kFill, opts) {
+    opts = opts || {};
+    var W = opts.width || 360, H = opts.height || 90;
+    var pad = {l:24, r:24, t:20, b:24};
+    var svg = SVG.svg(W, H);
+
+    var x = pad.l, y = pad.t, w = W - pad.l - pad.r, h = 24;
+    var cellW = w / nParts;
+
+    svg.appendChild(SVG.el('rect', {x:x, y:y, width:w, height:h, rx:6, ry:6,
+      fill:'#fff', stroke:COLOR_LINE, 'stroke-width':1.5}));
+
+    for (var i=1; i<nParts; i++){
+      var xi = x + i*cellW;
+      svg.appendChild(SVG.el('line', {x1:xi, y1:y, x2:xi, y2:y+h, stroke:'#999'}));
+    }
+
+    if (kFill>0){
+      svg.appendChild(SVG.el('rect', {x:x+1.5, y:y+1.5,
+        width:Math.max(0, kFill*cellW-3), height:h-3,
+        rx:5, ry:5, fill:COLOR_FILL}));
+    }
+
+    if (opts.caption){
+      svg.appendChild(SVG.text(W/2, y+h+22, opts.caption,
+        {'font-size':14, fill:COLOR_TEXT, 'text-anchor':'middle'}));
+    }
+    return svg;
+  }
+
+  function renderBarChoose(items, opts){
+    opts = opts || {};
+    var W = opts.width || 560, H = opts.height || 140;
+    var svg = SVG.svg(W, H);
+    var cols = items.length, gap = 14;
+    var cardW = (W - gap*(cols+1)) / cols, cardH = 70;
+    var top = 22;
+
+    items.forEach(function(it, idx){
+      var sx = gap + idx*(cardW+gap);
+      svg.appendChild(SVG.el('rect', {x:sx, y:top, width:cardW, height:cardH,
+        rx:8, ry:8, fill:'#fff'}));
+
+      var innerPad = 12, barW = cardW - innerPad*2;
+      var barH = 20, by = top + (cardH-barH)/2;
+      var bx = sx + innerPad;
+      svg.appendChild(SVG.el('rect', {x:bx, y:by, width:barW, height:barH,
+        rx:5, ry:5, fill:'#fff', stroke:COLOR_LINE, 'stroke-width':1.2}));
+
+      var cellW = barW / it.n;
+      for (var i=1;i<it.n;i++){
+        var xi = bx + i*cellW;
+        svg.appendChild(SVG.el('line', {x1:xi, y1:by, x2:xi, y2:by+barH, stroke:'#999'}));
+      }
+
+      if (it.k>0){
+        svg.appendChild(SVG.el('rect', {x:bx+1, y:by+1,
+          width:Math.max(0, it.k*cellW-2), height:barH-2,
+          rx:4, ry:4, fill:COLOR_FILL}));
+      }
+      svg.appendChild(SVG.text(sx + cardW/2, top + cardH + 18, it.label,
+        {'font-size':14, fill:'#2563eb', 'text-anchor':'middle'}));
+    });
+    return svg;
+  }
+
+  function parse(spec){
+    var m1 = spec.match(/^(:?svg:)?barfrac-(\d+)-(\d+)$/);
+    if (m1) return {kind:'bar', n:+m1[2], k:+m1[3]};
+
+    var m2 = spec.match(/^(:?svg:)?barfrac-choose-(\d+)_(\d+)$/);
+    if (m2) return {kind:'choose', num:+m2[2], den:+m2[3]};
+    return null;
+  }
+
+  SVG.register(function(spec){
+    var p = parse(spec);
+    if (!p) return null;
+
+    if (p.kind==='bar') return renderBarFraction(p.n, p.k, {});
+
+    if (p.kind==='choose'){
+      var items=[];
+      if (p.num===1 && p.den===4){
+        items = [{n:2,k:1,label:'ア'},{n:4,k:3,label:'イ'},{n:4,k:1,label:'ウ'},{n:8,k:1,label:'エ'}];
+      }else if (p.num===4 && p.den===5){
+        items = [{n:5,k:1,label:'ア'},{n:5,k:2,label:'イ'},{n:5,k:3,label:'ウ'},{n:5,k:4,label:'エ'}];
+      }else if (p.num===3 && p.den===7){
+        items = [{n:7,k:1,label:'ア'},{n:7,k:3,label:'イ'},{n:7,k:4,label:'ウ'},{n:7,k:5,label:'エ'}];
+      }
+      return renderBarChoose(items, {});
+    }
+    return null;
+  });
+})(window.SVG);
+</script>
