@@ -1,0 +1,169 @@
+<script>
+(function (SVG) {
+  // 共通色・太さ
+  var STK = {'stroke':'#222','stroke-width':2,'vector-effect':'non-scaling-stroke'};
+  function deg(a){ return a * Math.PI / 180; }
+
+  // 1) 用語図：中心 / 半径 / 直径
+  function renderCircleTerm(kind, S){
+    S = +S || 160;
+    var svg = SVG.svg(S,S); svg.setAttribute('viewBox','0 0 200 200');
+    var cx=100, cy=100, R=88;
+
+    svg.appendChild(SVG.circle(cx,cy,R,{fill:'#fff',...STK}));
+    svg.appendChild(SVG.circle(cx,cy,2.8,{fill:'#222'})); // 中心点
+
+    if (kind === 'radius'){
+      var ax = cx+R, ay=cy;
+      svg.appendChild(SVG.line(cx,cy, ax,ay, {...STK}));
+      svg.appendChild(SVG.text((cx+ax)/2, cy-8, '？', {'font-size':14, fill:'#0f766e','text-anchor':'middle'}));
+    }
+    if (kind === 'diameter'){
+      var ax=cx-R, ay=cy, bx=cx+R, by=cy;
+      svg.appendChild(SVG.line(ax,ay, bx,by, {...STK}));
+      svg.appendChild(SVG.text(cx, cy-10, '？', {'font-size':14, fill:'#b91c1c','text-anchor':'middle'}));
+    }
+    // center のときは点のみ（ラベルは出さない）
+    return svg;
+  }
+
+  // 2) 長さ読み取り：半径 n cm（等間隔目盛り）
+  function renderCircleLenRadius(n, S){
+    S = +S || 180; n = +n || 4;
+    var svg = SVG.svg(S,S); svg.setAttribute('viewBox','0 0 220 220');
+    var cx=110, cy=110, R=96;
+
+    svg.appendChild(SVG.circle(cx,cy,R,{fill:'#fff',...STK}));
+    svg.appendChild(SVG.circle(cx,cy,3,{fill:'#222'}));
+
+    // 右向き半径
+    var rx = cx+R, ry=cy;
+    svg.appendChild(SVG.line(cx,cy, rx,ry, {...STK}));
+
+    // 1cm 目盛（n等分）※相対表示。実寸計測はさせない意図。
+    for (var i=1;i<=n;i++){
+      var t = i/n; // 0..1
+      var x = cx + R*t, y = cy;
+      svg.appendChild(SVG.line(x, y-6, x, y+6, {'stroke':'#666','stroke-width':1,'vector-effect':'non-scaling-stroke'}));
+    }
+    // 端のラベル（0 / 1）ではなく、ここは「cm」の説明を避けるため記号のみ
+    svg.appendChild(SVG.text(cx, cy+18, '0', {'font-size':12, fill:'#444','text-anchor':'middle'}));
+    svg.appendChild(SVG.text(rx, cy+18, 'R', {'font-size':12, fill:'#444','text-anchor':'middle'}));
+    return svg;
+  }
+
+  // 3) 直径どうし（T/F補助）
+  function renderCircleTwoDiameters(S){
+    S = +S || 180;
+    var svg = SVG.svg(S,S); svg.setAttribute('viewBox','0 0 200 200');
+    var cx=100, cy=100, R=88;
+    svg.appendChild(SVG.circle(cx,cy,R,{fill:'#fff',...STK}));
+    svg.appendChild(SVG.line(cx-R,cy, cx+R,cy, {...STK}));            // 水平直径
+    var a = deg(30);
+    svg.appendChild(SVG.line(cx-Math.cos(a)*R, cy-Math.sin(a)*R,
+                             cx+Math.cos(a)*R, cy+Math.sin(a)*R, {...STK}));
+    svg.appendChild(SVG.circle(cx,cy,3,{fill:'#222'}));
+    return svg;
+  }
+
+  // 4) 最長の直線（ア/イ/ウ/エ）
+  function renderCircleChordsAIUE(S){
+    S = +S || 240;
+    var svg = SVG.svg(S,S); svg.setAttribute('viewBox','0 0 240 240');
+    var cx=120, cy=120, R=100;
+    svg.appendChild(SVG.circle(cx,cy,R,{fill:'#fff',...STK}));
+    svg.appendChild(SVG.circle(cx,cy,3,{fill:'#222'}));
+
+    // ランダムにせず固定配置（解説一貫性）
+    // ア: 直径（最長）
+    svg.appendChild(SVG.line(cx-R,cy, cx+R,cy, {...STK}));
+    svg.appendChild(SVG.text(cx, cy-12, 'ア', {'font-size':14, fill:'#111','text-anchor':'middle'}));
+
+    // イ: chord 短め（上）
+    var a1=deg(-50), a2=deg(130);
+    svg.appendChild(SVG.line(cx+Math.cos(a1)*R, cy+Math.sin(a1)*R,
+                             cx+Math.cos(a2)*R, cy+Math.sin(a2)*R, {...STK}));
+    svg.appendChild(SVG.text(cx-40, cy-70, 'イ', {'font-size':14, fill:'#111'}));
+
+    // ウ: chord 中くらい（斜め）
+    var b1=deg(20), b2=deg(160);
+    svg.appendChild(SVG.line(cx+Math.cos(b1)*R, cy+Math.sin(b1)*R,
+                             cx+Math.cos(b2)*R, cy+Math.sin(b2)*R, {...STK}));
+    svg.appendChild(SVG.text(cx+55, cy-10, 'ウ', {'font-size':14, fill:'#111'}));
+
+    // エ: 半径（短い）
+    svg.appendChild(SVG.line(cx,cy, cx,cy-R, {...STK}));
+    svg.appendChild(SVG.text(cx+12, cy-R-6, 'エ', {'font-size':14, fill:'#111'}));
+    return svg;
+  }
+
+  // 5) 円の並び（rows x cols, 半径r）＋外枠
+  function renderCirclesGrid(rows, cols, r, S){
+    rows=+rows||2; cols=+cols||3; r=+r||4; // rは表示比のみ
+    var cell = 80, pad=20;
+    var W = cols*cell + pad*2, H = rows*cell + pad*2;
+    S = +S || W; // 等倍
+    var svg = SVG.svg(S, H*(S/W)); svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+
+    // 外枠（並んだ円を囲う四角形）
+    svg.appendChild(SVG.rect(pad, pad, cols*cell, rows*cell, {fill:'#fff',...STK, rx:6, ry:6}));
+
+    for (var y=0;y<rows;y++){
+      for (var x=0;x<cols;x++){
+        var cx = pad + cell*(x+0.5);
+        var cy = pad + cell*(y+0.5);
+        var R = cell*0.38; // レイアウト用の相対半径
+        svg.appendChild(SVG.circle(cx,cy,R,{fill:'#fff',...STK}));
+      }
+    }
+    return svg;
+  }
+
+  // 6) 大円の中に同じ円を3つ横並び（大円の直径 D → 小円の半径 D/6）
+  function renderThreeInBig(D, S){
+    D=+D||36; // 表示比のみ。単位は図上ラベルにしない
+    S=+S||220;
+    var svg = SVG.svg(S,S); svg.setAttribute('viewBox','0 0 220 220');
+    var cx=110, cy=110, Rbig=96;
+
+    svg.appendChild(SVG.circle(cx,cy,Rbig,{fill:'#fff',...STK}));
+
+    var rSmall = Rbig/3; // 直径比 1:3 → 半径は 1/3
+    // 3つを水平に接するように配置
+    var c1 = cx - rSmall*2, c2 = cx, c3 = cx + rSmall*2;
+    [c1, c2, c3].forEach(function(x){
+      svg.appendChild(SVG.circle(x, cy, rSmall, {fill:'#fff',...STK}));
+    });
+    return svg;
+  }
+
+  // レジストリ
+  SVG.register(function(spec){
+    // circle_term_center / radius / diameter (-S)
+    var m = spec.match(/^circle_term_(center|radius|diameter)(?:-(\d{2,3}))?$/);
+    if (m) return renderCircleTerm(m[1], m[2]);
+
+    // circle_len_radius_4cm (-S)
+    m = spec.match(/^circle_len_radius_(\d+)cm(?:-(\d{2,3}))?$/);
+    if (m) return renderCircleLenRadius(+m[1], m[2]);
+
+    // circle_two_diameters (-S)
+    m = spec.match(/^circle_two_diameters(?:-(\d{2,3}))?$/);
+    if (m) return renderCircleTwoDiameters(m[1]);
+
+    // circle_chords_aiue (-S)
+    m = spec.match(/^circle_chords_aiue(?:-(\d{2,3}))?$/);
+    if (m) return renderCircleChordsAIUE(m[1]);
+
+    // circles_grid_2x3_r4cm (_rectは無視して描画) (-S)
+    m = spec.match(/^circles_grid_(\d+)x(\d+)_r(\d+)cm(?:_rect)?(?:-(\d{2,3}))?$/);
+    if (m) return renderCirclesGrid(+m[1], +m[2], +m[3], m[4]);
+
+    // circle_three_in_big_d36cm (-S)
+    m = spec.match(/^circle_three_in_big_d(\d+)cm(?:-(\d{2,3}))?$/);
+    if (m) return renderThreeInBig(+m[1], m[2]);
+
+    return null;
+  });
+})(window.SVG);
+</script>
