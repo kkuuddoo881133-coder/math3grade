@@ -1,13 +1,22 @@
 <script>
 // == Beaker assets (0.1L scale) ==
+// 仕様:
+//  - svg:beaker_dec_read_N    → N/10 L を表示（N=0..15 を想定）
+//      * N<=10 なら容量 1.0L、N>10 なら容量 1.5L に自動切替
+//  - svg:beaker_dec_shade_0_7 → 0.7L の位置選択（ア=0.5, イ=0.6, ウ=0.8, エ=0.7）
+//  後方互換: beaker_dec_read_5 / 13 / shade_0_7 もそのまま動作
+
 (function (SVG) {
+
+  // ---------------- 共通描画 ----------------
   function renderBeaker(opts){
     var W = opts.width  || 220;
     var H = opts.height || 260;
-    var pad = {l:48, r:76, t:18, b:36};   // 左ラベル&右上注記用に広め
+    // 左ラベルと右上注記が切れない余白
+    var pad = { l: 52, r: 90, t: 18, b: 36 };
     var svg = SVG.svg(W, H);
 
-    var cap = opts.capacityL ?? 1.0;      // 上限（L）
+    var cap = (opts.capacityL != null) ? opts.capacityL : 1.0;
     var minorEvery = 0.1, midEvery = 0.5, majorEvery = 1.0;
 
     var x = pad.l, y = pad.t;
@@ -20,7 +29,7 @@
     }));
 
     // 目盛（左）
-    var ticksX = x - 10, labelX = x - 12;
+    var ticksX = x - 12, labelX = x - 14;
     for (var v=0; v<=cap+1e-9; v+=minorEvery){
       var t = 1 - (v/cap);
       var yy = y + tankH * t;
@@ -30,11 +39,13 @@
 
       svg.appendChild(SVG.el('line', {x1:ticksX, y1:yy, x2:ticksX+len, y2:yy, stroke:'#111'}));
 
-      // 0 / 0.5 / 1.0 / 1.5 … を表示（1.0 も必ず表示）
+      // 0.0 / 0.5 / 1.0 / 1.5 … を必ず表示（“1.0L” を含む）
       var show = (Math.abs(v % midEvery) < 1e-9) || (Math.abs(v % majorEvery) < 1e-9);
       if (show){
         var txt = v.toFixed(1) + 'L';
-        svg.appendChild(SVG.text(labelX, yy+4, txt, {'font-size':12, fill:'#111', 'text-anchor':'end'}));
+        svg.appendChild(SVG.text(labelX, yy+4, txt, {
+          'font-size': 12, fill:'#111', 'text-anchor':'end'
+        }));
       }
     }
 
@@ -42,28 +53,102 @@
     if (opts.fillL != null){
       var h = tankH * (opts.fillL / cap);
       var fy = y + tankH - h;
-      svg.appendChild(SVG.el('rect', {x:x+2, y:fy, width:tankW-4, height:h, rx:10, ry:10, fill:'#a7d1ff'}));
-      svg.appendChild(SVG.el('line', {x1:x, y1:fy, x2:x+tankW, y2:fy, stroke:'#2563eb', 'stroke-width':2}));
+      svg.appendChild(SVG.el('rect', {
+        x:x+2, y:fy, width:tankW-4, height:h, rx:10, ry:10, fill:'#a7d1ff'
+      }));
+      svg.appendChild(SVG.el('line', {
+        x1:x, y1:fy, x2:x+tankW, y2:fy, stroke:'#2563eb', 'stroke-width':2
+      }));
     }
 
-    // 注記（容器の外、右上）
+    // 目標線（破線）+ ラベル（右外）
+    if (opts.targets && opts.targets.length){
+      opts.targets.forEach(function(tg){
+        var v = tg.valueL;
+        if (v<0 || v>cap) return;
+        var yy = y + tankH * (1 - v/cap);
+        svg.appendChild(SVG.el('line', {
+          x1:x+3, y1:yy, x2:x+tankW-3, y2:yy,
+          stroke:'#2563eb','stroke-width':2,'stroke-dasharray':'4 4'
+        }));
+        if (tg.label){
+          svg.appendChild(SVG.text(x+tankW+14, yy+4, tg.label, {
+            'font-size': 13, fill:'#2563eb', 'text-anchor':'start'
+          }));
+        }
+      });
+    }
+
+    // 注記（右上・容器の外）
     if (opts.note){
-      svg.appendChild(SVG.text(x + tankW + 6, y + 12, opts.note, {'font-size':12, fill:'#374151', 'text-anchor':'start'}));
+      svg.appendChild(SVG.text(x + tankW + 6, y + 12, opts.note, {
+        'font-size': 12, fill:'#374151', 'text-anchor':'start'
+      }));
     }
     return svg;
   }
 
-  // --- Assets ---
+  // ------------- 柔軟パーサ -------------
+  function parseBeakerSpec(spec){
+    // 読み取り: svg:beaker_dec_read_N  → N/10 L
+    var m = spec.match(/^(:?svg:)?beaker_dec_read_(\d{1,2})$/);
+    if (m){
+      var n = parseInt(m[2],10); // 0..15 推奨
+      var fill = n/10;
+      var cap  = (fill <= 1.0) ? 1.0 : 1.5;
+      return { kind:'read', cap:cap, fill:fill };
+    }
+    // 塗り位置（既定の0.7L問題）
+    if (/^(:?svg:)?beaker_dec_shade_0_7$/.test(spec)){
+      return { kind:'shade07' };
+    }
+    return null;
+  }
+
+  // ------------- レジストリ -------------
   SVG.register(function(spec){
-    if (spec === 'beaker_dec_read_5' || spec === 'svg:beaker_dec_read_5'){
+    // 従来の固定IDも後方互換で動かす
+    if (spec==='beaker_dec_read_5' || spec==='svg:beaker_dec_read_5'){
       return renderBeaker({capacityL:1.0, fillL:0.5, note:'1目もり=0.1L'});
     }
-    if (spec === 'beaker_dec_read_13' || spec === 'svg:beaker_dec_read_13'){
+    if (spec==='beaker_dec_read_13' || spec==='svg:beaker_dec_read_13'){
       return renderBeaker({capacityL:1.5, fillL:1.3, note:'1目もり=0.1L'});
     }
-    if (spec === 'beaker_dec_shade_0_7' || spec === 'svg:beaker_dec_shade_0_7'){
-      // 位置線はUI側で。容器のみ表示。
-      return renderBeaker({capacityL:1.0, note:'0.1Lごと'});
+    if (spec==='beaker_dec_shade_0_7' || spec==='svg:beaker_dec_shade_0_7'){
+      return renderBeaker({
+        capacityL:1.0,
+        targets:[
+          {valueL:0.5, label:'ア'},
+          {valueL:0.6, label:'イ'},
+          {valueL:0.8, label:'ウ'},
+          {valueL:0.7, label:'エ'} // 正解
+        ],
+        note:'0.1Lごと'
+      });
+    }
+
+    // 新パーサで動的に対応
+    var p = parseBeakerSpec(spec);
+    if (p){
+      if (p.kind === 'read'){
+        return renderBeaker({
+          capacityL: p.cap,
+          fillL:     p.fill,
+          note:      '1目もり=0.1L'
+        });
+      }
+      if (p.kind === 'shade07'){
+        return renderBeaker({
+          capacityL:1.0,
+          targets:[
+            {valueL:0.5, label:'ア'},
+            {valueL:0.6, label:'イ'},
+            {valueL:0.8, label:'ウ'},
+            {valueL:0.7, label:'エ'}
+          ],
+          note:'0.1Lごと'
+        });
+      }
     }
     return null;
   });
