@@ -6,66 +6,76 @@
  * ============================================== */
 (function (SVG) {
 
-  /* ---------- 汎用：円弧メーター描画 ---------- */
+  /* ---------- 円弧メーター描画 ---------- */
   function renderScale(opts){
-    // max: 最大値[g] (1000/2000 など)
-    // step: 目盛1本あたり[g] (20/50 など)
-    // value: 針の値[g]
-    // unitLabel: ラベル (例 "g")
-    var W = opts.width  || 240;
-    var H = opts.height || 170;
+    // opts: {max, step, value, width, height, compact, showValue}
+    var W = opts.width  || 280;
+    var H = opts.height || 190;
     var svg = SVG.svg(W, H);
 
-    var cx = W/2, cy = H-12;                 // 半円の中心（下）
-    var R  = Math.min(W*0.42, H*0.75);       // 半径
+    var compact = !!opts.compact;          // 小型（pick用）
+    var pad = compact ? {x:6, y:4} : {x:10, y:10};
+
+    // 外枠（小型では描かない）
+    if (!compact){
+      svg.appendChild(SVG.el('rect',{
+        x:pad.x, y:pad.y, width:W-pad.x*2, height:H-pad.y*2, rx:12, ry:12,
+        fill:'#fff', stroke:'#374151','stroke-width':1.6
+      }));
+    }
+
+    // 幾何
+    var cx = W/2;
+    var cy = H - (compact? 10 : 14);                // 下側に余白
+    var R  = Math.min(W*(compact?0.46:0.42), H*(compact?0.92:0.78));
+
     var max = opts.max, step = opts.step;
     var value = Math.max(0, Math.min(max, (opts.value||0)));
-
-    // 枠
-    svg.appendChild(SVG.el('rect', {
-      x:10, y:10, width:W-20, height:H-20, rx:10, ry:10,
-      fill:'#fff', stroke:'#374151', 'stroke-width':1.4
-    }));
 
     // 目盛（-90°〜+90°）
     var totalTicks = Math.round(max/step);
     for (var i=0; i<=totalTicks; i++){
-      var ratio = i/totalTicks;                      // 0..1
+      var ratio = i/totalTicks;
       var ang = (-Math.PI/2) + (Math.PI * ratio);
-      var len = 8;
-      // 強調：100g毎 or 200g毎（最大値で切替）
+
+      var len = compact ? 7 : 8;
       var g = i*step;
-      if ( (max===1000 && g%100===0) || (max===2000 && g%200===0) ) len = 13;
+      if ( (max===1000 && g%100===0) || (max===2000 && g%200===0) ) len = compact? 11 : 13;
 
-      var x1 = cx + Math.cos(ang) * (R-18);
-      var y1 = cy + Math.sin(ang) * (R-18);
-      var x2 = cx + Math.cos(ang) * (R-18-len);
-      var y2 = cy + Math.sin(ang) * (R-18-len);
-      svg.appendChild(SVG.el('line', {x1:x1,y1:y1,x2:x2,y2:y2, stroke:'#111'}));
+      var x1 = cx + Math.cos(ang) * (R- (compact? 10 : 18));
+      var y1 = cy + Math.sin(ang) * (R- (compact? 10 : 18));
+      var x2 = cx + Math.cos(ang) * (R- (compact? 10 : 18) - len);
+      var y2 = cy + Math.sin(ang) * (R- (compact? 10 : 18) - len);
+      svg.appendChild(SVG.el('line',{x1:x1,y1:y1,x2:x2,y2:y2,stroke:'#111'}));
 
-      // 主要ラベル
-      var showMajor = (max===1000 && g%200===0) || (max===2000 && g%500===0) || (g===0) || (g===max);
+      // 主要ラベル（小型は控えめ・0/中値/最大のみ）
+      var showMajor =
+        (g===0) || (g===max) ||
+        (!compact && (max===1000 && g%200===0)) ||
+        (!compact && (max===2000 && g%500===0)) ||
+        ( compact && g===Math.round(max/2) );
+
       if (showMajor){
-        var lx = cx + Math.cos(ang) * (R-36);
-        var ly = cy + Math.sin(ang) * (R-36) + 4;
-        var text = (max===2000 && g%1000===0) ? (g/1000)+'kg'
-                  : (g===0? '0' : g+'g');
-        svg.appendChild(SVG.text(lx, ly, text, {'font-size':11, fill:'#111', 'text-anchor':'middle'}));
+        var lx = cx + Math.cos(ang) * (R - (compact? 22 : 36));
+        var ly = cy + Math.sin(ang) * (R - (compact? 22 : 36)) + 4;
+        var txt = (max===2000 && g%1000===0) ? (g/1000)+'kg' : (g===0? '0' : g+'g');
+        svg.appendChild(SVG.text(lx, ly, txt, {
+          'font-size': compact? 10 : 11, fill:'#111', 'text-anchor':'middle'
+        }));
       }
     }
 
     // 針
     var angV = (-Math.PI/2) + Math.PI * (value/max);
-    var nx = cx + Math.cos(angV) * (R-30);
-    var ny = cy + Math.sin(angV) * (R-30);
-    svg.appendChild(SVG.el('line', {
-      x1:cx, y1:cy, x2:nx, y2:ny, stroke:'#2563eb', 'stroke-width':3
+    var nx = cx + Math.cos(angV) * (R - (compact? 16 : 28));
+    var ny = cy + Math.sin(angV) * (R - (compact? 16 : 28));
+    svg.appendChild(SVG.el('line',{
+      x1:cx, y1:cy, x2:nx, y2:ny, stroke:'#2563eb','stroke-width': compact? 2.6 : 3.2
     }));
-    // ハブ
-    svg.appendChild(SVG.el('circle', {cx:cx, cy:cy, r:5, fill:'#2563eb'}));
+    svg.appendChild(SVG.el('circle',{cx:cx, cy:cy, r: compact? 4 : 5, fill:'#2563eb'}));
 
-    // 下センターに数値（オプションで非表示可）
-    if (opts.showValue !== false){
+    // 値（小型は非表示推奨）
+    if (opts.showValue !== false && !compact){
       var label = (max>=2000 && value%1000===0) ? (value/1000)+'kg' : (value+'g');
       svg.appendChild(SVG.text(cx, H-26, label, {'font-size':12, fill:'#374151', 'text-anchor':'middle'}));
     }
@@ -74,77 +84,86 @@
 
   /* ---------- 4択：小型メーター横並び ---------- */
   function renderScalePick(conf){
-    // {max, step, correct, deltas:[-20,+20,...]} など
-    var W = conf.width || 560, H = conf.height || 170, gap = 14;
-    var cols = 4, cardW = (W - gap*(cols+1)) / cols, cardH = H-40;
+    // conf: {max, step, correct, deltas?[], width?, height?}
+    var W = conf.width || 700, H = conf.height || 210;   // 少し広め&高めに
+    var gap = 16, cols = 4, cardW = (W - gap*(cols+1)) / cols, cardH = H - 34;
     var svg = SVG.svg(W, H);
     var choices = ['ア','イ','ウ','エ'];
 
-    // 針の値を作る（正解 + 典型ミス）
+    // 値（正解＋典型ミス: ±2目盛, 0, −4目盛）
+    var deltaUnit = conf.step;
+    var deltas = conf.deltas || [-2*deltaUnit, +2*deltaUnit, 0, -4*deltaUnit];
     var values = [
-      conf.correct + (conf.deltas?.[0] ?? 0),
-      conf.correct + (conf.deltas?.[1] ?? 0),
-      conf.correct + (conf.deltas?.[2] ?? 0),
-      conf.correct + (conf.deltas?.[3] ?? 0),
+      conf.correct + deltas[0],
+      conf.correct + deltas[1],
+      conf.correct + deltas[2],
+      conf.correct + deltas[3],
     ];
 
     for (var i=0;i<4;i++){
-      var x = gap + i*(cardW+gap), y=14;
+      var x = gap + i*(cardW+gap), y = 10;
+
       // 台
-      svg.appendChild(SVG.el('rect', {x:x, y:y, width:cardW, height:cardH, rx:10, ry:10, fill:'#fff'}));
-      // 小メーター
-      var s = renderScale({width:cardW-16, height:cardH-30, max:conf.max, step:conf.step, value:values[i], showValue:false});
-      s.setAttribute('x', x+8);
-      s.setAttribute('y', y+6);
+      svg.appendChild(SVG.el('rect',{x:x, y:y, width:cardW, height:cardH, rx:12, ry:12, fill:'#fff'}));
+
+      // 小メーター（外枠なし・中央寄せ）
+      var s = renderScale({
+        width:  cardW - 14,
+        height: cardH - 20,
+        max: conf.max,
+        step: conf.step,
+        value: values[i],
+        compact: true,
+        showValue: false
+      });
+      s.setAttribute('x', x + 7);
+      s.setAttribute('y', y + 6);
       svg.appendChild(s);
-      // ラベル
-      svg.appendChild(SVG.text(x + cardW/2, y + cardH - 6, choices[i],
+
+      // ラベル（下中央）
+      svg.appendChild(SVG.text(x + cardW/2, y + cardH - 8, choices[i],
         {'font-size':14, fill:'#2563eb', 'text-anchor':'middle'}));
     }
     return svg;
   }
 
-  /* ---------- てんびん ---------- */
+  /* ---------- てんびん（左右どちらが軽いか） ---------- */
   function renderBalanceTilt(opts){
-    // opts.diffCoins = 3 なら右が軽い図（→右へ3こ置けば釣り合う）
-    var W = opts.width||420, H = opts.height||160;
+    var W = opts.width||460, H = opts.height||180;
     var svg = SVG.svg(W,H);
 
-    var cx=W/2, baseY=H-26;
+    var cx=W/2, baseY=H-28;
 
-    // 支点（三角）
-    svg.appendChild(SVG.el('path', {d:`M ${cx-16} ${baseY} L ${cx} ${baseY-24} L ${cx+16} ${baseY} Z`, fill:'#9ca3af'}));
+    // 支点
+    svg.appendChild(SVG.el('path',{d:`M ${cx-18} ${baseY} L ${cx} ${baseY-26} L ${cx+18} ${baseY} Z`, fill:'#9ca3af'}));
 
-    // ビーム（傾き）
-    var tilt = (opts.rightIsLight!==false) ? -10 : 10; // 右が軽い→右上がる→ビーム左下がり（負）
-    var beamLen = W*0.7;
-    svg.appendChild(SVG.el('rect', {
-      x:cx-beamLen/2, y:baseY-70, width:beamLen, height:6,
-      transform:`rotate(${tilt} ${cx} ${baseY-67})`,
+    // ビーム
+    var tilt = (opts.rightIsLight!==false) ? -11 : 11;
+    var beamLen = W*0.72;
+    svg.appendChild(SVG.el('rect',{
+      x:cx-beamLen/2, y:baseY-74, width:beamLen, height:6,
+      transform:`rotate(${tilt} ${cx} ${baseY-71})`,
       rx:3, ry:3, fill:'#374151'
     }));
 
     // 皿
     function pan(cx0, up){
-      var y = baseY-40 + (up? -14: 14);
-      var g = SVG.el('g', {});
-      g.appendChild(SVG.el('line',{x1:cx0,y1:baseY-64,x2:cx0,y2:y-6,stroke:'#374151'}));
-      g.appendChild(SVG.el('rect',{x:cx0-42,y:y,width:84,height:10,rx:5,ry:5,fill:'#e5e7eb',stroke:'#374151'}));
+      var y = baseY-42 + (up? -16: 16);
+      var g = SVG.el('g',{});
+      g.appendChild(SVG.el('line',{x1:cx0,y1:baseY-70,x2:cx0,y2:y-6,stroke:'#374151'}));
+      g.appendChild(SVG.el('rect',{x:cx0-46,y:y,width:92,height:11,rx:6,ry:6,fill:'#e5e7eb',stroke:'#374151'}));
       return g;
     }
-    var leftUp  = (tilt>0);   // ビーム右下がり→左上がる
-    var rightUp = (tilt<0);
-    var left = pan(cx-beamLen/2+36, leftUp);
-    var right= pan(cx+beamLen/2-36, rightUp);
-    svg.appendChild(left); svg.appendChild(right);
+    var leftUp  = (tilt>0), rightUp = (tilt<0);
+    svg.appendChild(pan(cx-beamLen/2+40, leftUp));
+    svg.appendChild(pan(cx+beamLen/2-40, rightUp));
 
-    // ラベル（ア/イ）
-    svg.appendChild(SVG.text(cx-beamLen/2+36, baseY-12, 'ア', {'font-size':14, fill:'#2563eb', 'text-anchor':'middle'}));
-    svg.appendChild(SVG.text(cx+beamLen/2-36, baseY-12, 'イ', {'font-size':14, fill:'#2563eb', 'text-anchor':'middle'}));
+    // ラベル
+    svg.appendChild(SVG.text(cx-beamLen/2+40, baseY-10, 'ア', {'font-size':14, fill:'#2563eb','text-anchor':'middle'}));
+    svg.appendChild(SVG.text(cx+beamLen/2-40, baseY-10, 'イ', {'font-size':14, fill:'#2563eb','text-anchor':'middle'}));
 
-    // 注記（右に3こ置けば釣り合う）
     if (opts.diffCoins){
-      svg.appendChild(SVG.text(W-8, 18, `右に${opts.diffCoins}こ のせる`, {'font-size':12, fill:'#374151', 'text-anchor':'end'}));
+      svg.appendChild(SVG.text(W-10, 18, `右に${opts.diffCoins}こ のせる`, {'font-size':12, fill:'#374151', 'text-anchor':'end'}));
     }
     return svg;
   }
@@ -175,10 +194,8 @@
     }
 
     if (p.kind==='pick'){
-      // デフォの4択パターン（典型誤答）：[-40, +40, 0, -80]（1k/20g用）
-      var delta40 = (p.step===50) ? 100 : 40; // 2kg/50gなら±100gに
-      var deltas = [-delta40, +delta40, 0, -(delta40*2)];
-      return renderScalePick({max:p.max, step:p.step, correct:p.correct, deltas:deltas});
+      // 既定の4択パターン：±2目盛、0、−4目盛（2kg/50gでも自然にずれる）
+      return renderScalePick({max:p.max, step:p.step, correct:p.correct});
     }
 
     if (p.kind==='balance'){
