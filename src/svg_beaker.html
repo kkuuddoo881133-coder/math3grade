@@ -1,125 +1,107 @@
 <script>
 (function (SVG) {
-  // --------------- 汎用：ビーカー描画 ----------------
+  // -------- 汎用：ビーカー描画（余白と注記を調整） --------
   function renderBeaker(opts){
-    var W = opts.width || 180, H = opts.height || 220;
-    var pad = {l:28, r:24, t:16, b:28};
+    var W = opts.width || 200, H = opts.height || 240;
+    // 左ラベルが切れないように余白を広めに
+    var pad = {l:46, r:42, t:18, b:32};
     var svg = SVG.svg(W, H);
 
-    // 設定
-    var cap = opts.capacityL || 1.0;         // 目盛の上限（L）
-    var majorEvery = 1.0;                     // 太目盛（1Lごと）
-    var midEvery = 0.5;                       // 中目盛（0.5L）
-    var minorEvery = 0.1;                     // 細目盛（0.1L）
+    var cap = opts.capacityL || 1.0;   // 目盛り上限（L）
+    var majorEvery = 1.0;              // 1L
+    var midEvery   = 0.5;              // 0.5L
+    var minorEvery = 0.1;              // 0.1L
     var tankW = W - pad.l - pad.r, tankH = H - pad.t - pad.b;
     var x = pad.l, y = pad.t;
 
-    // ガラス容器（角丸）
+    // ガラス容器
     svg.appendChild(SVG.el('rect', {
-      x:x, y:y, width:tankW, height:tankH, rx:10, ry:10,
-      fill:'#f9fafb', stroke:'#374151', 'stroke-width':1.5
+      x:x, y:y, width:tankW, height:tankH, rx:12, ry:12,
+      fill:'#f9fafb', stroke:'#374151', 'stroke-width':2
     }));
 
-    // 目盛り（左辺に描く）
-    var ticksX = x - 8, labelX = x - 10;
+    // 目盛（左）
+    var ticksX = x - 10, labelX = x - 12;
     for (var v=0; v<=cap+1e-9; v+=minorEvery){
-      var t = 1 - (v/cap);                         // 0〜1（下が0,上が1）
+      var t = 1 - (v/cap);
       var yy = y + tankH * t;
-      var len = 6;                                  // 細
-      if (Math.abs(v % majorEvery) < 1e-9) len = 14;
-      else if (Math.abs(v % midEvery)   < 1e-9) len = 10;
+      var len = 6;
+      if (Math.abs(v % majorEvery) < 1e-9) len = 16;
+      else if (Math.abs(v % midEvery) < 1e-9) len = 11;
 
       svg.appendChild(SVG.el('line', {
         x1: ticksX, y1: yy, x2: ticksX+len, y2: yy, stroke:'#111'
       }));
 
-      // ラベル：0, 0.5, 1.0, 1.5 … だけ表示
+      // 0,0.5,1.0,… のみ表示（ラベルは外側、中央揃えで上下にじまない）
       var showLabel = (Math.abs(v % majorEvery) < 1e-9) || (Math.abs(v % midEvery) < 1e-9);
       if (showLabel){
-        var txt = (Math.round(v*10)/10).toFixed( (Math.abs(v % 1) < 1e-9)? 0 : 1 ) + 'L';
-        svg.appendChild(SVG.text(labelX, yy+4, txt, {
-          'font-size':11, fill:'#111', 'text-anchor':'end'
+        var txt = (Math.round(v*10)/10).toFixed((Math.abs(v % 1) < 1e-9)?0:1) + 'L';
+        svg.appendChild(SVG.text(labelX, yy, txt, {
+          'font-size':12, fill:'#111', 'text-anchor':'end', 'dominant-baseline':'middle'
         }));
       }
     }
 
-    // 水（読み取り or 着色）
+    // 水の塗り
     if (opts.fillL != null){
       var h = tankH * (opts.fillL / cap);
       var fy = y + tankH - h;
       svg.appendChild(SVG.el('rect', {
-        x:x+1.5, y:fy, width:tankW-3, height:h,
-        fill:'#93c5fd'
+        x:x+2, y:fy, width:tankW-4, height:h, rx:8, ry:8, fill:'#93c5fd'
       }));
-      // 水面ライン
       svg.appendChild(SVG.el('line', {
         x1:x, y1:fy, x2:x+tankW, y2:fy, stroke:'#2563eb','stroke-width':2
       }));
     }
 
-    // ターゲット線（選択式）
+    // 目標ライン（選択肢）
     if (opts.targets && opts.targets.length){
       opts.targets.forEach(function(tg){
-        var v = tg.valueL;
-        if (v<0 || v>cap) return;
+        var v = tg.valueL; if (v<0 || v>cap) return;
         var yy = y + tankH * (1 - v/cap);
         svg.appendChild(SVG.el('line', {
-          x1:x+2, y1:yy, x2:x+tankW-2, y2:yy,
+          x1:x+3, y1:yy, x2:x+tankW-3, y2:yy,
           stroke:'#2563eb','stroke-width':2,'stroke-dasharray':'4 4'
         }));
         if (tg.label){
-          svg.appendChild(SVG.text(x+tankW+14, yy+4, tg.label, {
-            'font-size':13, fill:'#2563eb'
+          svg.appendChild(SVG.text(x+tankW+18, yy, tg.label, {
+            'font-size':13, fill:'#2563eb', 'dominant-baseline':'middle'
           }));
         }
       });
     }
 
-    // タイトル（任意）
+    // 注記は容器の**外・右側**へ（重なり防止）
     if (opts.note){
-      svg.appendChild(SVG.text(W-6, pad.t+12, opts.note, {
-        'font-size':11, fill:'#374151','text-anchor':'end'
+      svg.appendChild(SVG.text(x + tankW + 18, y + 12, opts.note, {
+        'font-size':12, fill:'#374151', 'text-anchor':'start'
       }));
     }
     return svg;
   }
 
-  // --------------- 個別アセットを登録 ----------------
+  // -------- 個別アセット --------
   SVG.register(function(spec){
-    // 0.5L を読む（容量1L）
     if (spec === 'beaker_dec_read_5'){
-      return renderBeaker({
-        capacityL: 1.0,
-        fillL: 0.5,
-        note:'1目もり=0.1L'
-      });
+      return renderBeaker({ capacityL:1.0, fillL:0.5, note:'1目もり=0.1L' });
     }
-
-    // 1.3L を読む（1Lをまたぐ表示：容量1.5L、1.0Lを強調）
     if (spec === 'beaker_dec_read_13'){
-      var svg = renderBeaker({
-        capacityL: 1.5,
-        fillL: 1.3,
-        note:'1目もり=0.1L'
-      });
-      return svg;
+      return renderBeaker({ capacityL:1.5, fillL:1.3, note:'1目もり=0.1L' });
     }
-
-    // 0.7L に塗る位置を選ぶ：ア/イ/ウ/エ（エ=0.7Lが正解）
-    // 配置：ア=0.5L, イ=0.6L, ウ=0.8L, エ=0.7L（並びをシャッフルして正解をDに）
     if (spec === 'beaker_dec_shade_0_7'){
+      // ア=0.5, イ=0.6, ウ=0.8, エ=0.7（正解）
       return renderBeaker({
-        capacityL: 1.0,
-        targets: [
+        capacityL:1.0,
+        targets:[
           {valueL:0.5, label:'ア'},
           {valueL:0.6, label:'イ'},
           {valueL:0.8, label:'ウ'},
-          {valueL:0.7, label:'エ'} // ← 正解
+          {valueL:0.7, label:'エ'}
         ],
         note:'0.1Lごと'
       });
     }
-
     return null;
   });
 })(window.SVG);
