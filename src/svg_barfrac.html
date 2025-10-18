@@ -7,6 +7,7 @@
   var COLOR_LINE  = '#374151';
   var COLOR_TEXT  = '#111';
 
+  // 単一棒（n 等分中 k 個を塗る）
   function renderBarFraction(nParts, kFill, opts) {
     opts = opts || {};
     var W = opts.width || 360, H = opts.height || 90;
@@ -16,20 +17,33 @@
     var x = pad.l, y = pad.t, w = W - pad.l - pad.r, h = 24;
     var cellW = w / nParts;
 
+    // 背景（白）
     svg.appendChild(SVG.el('rect', {x:x, y:y, width:w, height:h, rx:6, ry:6,
-      fill:'#fff', stroke:COLOR_LINE, 'stroke-width':1.5}));
+      fill:'#fff'
+    }));
 
-    for (var i=1; i<nParts; i++){
-      var xi = x + i*cellW;
-      svg.appendChild(SVG.el('line', {x1:xi, y1:y, x2:xi, y2:y+h, stroke:'#999'}));
-    }
-
+    // 先に「塗り」を描いて、その上に区切り線→外枠を重ねる
     if (kFill>0){
       svg.appendChild(SVG.el('rect', {x:x+1.5, y:y+1.5,
         width:Math.max(0, kFill*cellW-3), height:h-3,
-        rx:5, ry:5, fill:COLOR_FILL}));
+        rx:5, ry:5, fill:COLOR_FILL
+      }));
     }
 
+    // 等分の区切り線（塗りの上に出す）
+    for (var i=1; i<nParts; i++){
+      var xi = x + i*cellW;
+      svg.appendChild(SVG.el('line', {x1:xi, y1:y, x2:xi, y2:y+h,
+        stroke:'#999'
+      }));
+    }
+
+    // 外枠（いちばん上）
+    svg.appendChild(SVG.el('rect', {x:x, y:y, width:w, height:h, rx:6, ry:6,
+      fill:'none', stroke:COLOR_LINE, 'stroke-width':1.5
+    }));
+
+    // （任意）下のキャプション
     if (opts.caption){
       svg.appendChild(SVG.text(W/2, y+h+22, opts.caption,
         {'font-size':14, fill:COLOR_TEXT, 'text-anchor':'middle'}));
@@ -37,6 +51,7 @@
     return svg;
   }
 
+  // 四択カード（ア・イ・ウ・エ）
   function renderBarChoose(items, opts){
     opts = opts || {};
     var W = opts.width || 560, H = opts.height || 140;
@@ -47,32 +62,51 @@
 
     items.forEach(function(it, idx){
       var sx = gap + idx*(cardW+gap);
+      // 台紙
       svg.appendChild(SVG.el('rect', {x:sx, y:top, width:cardW, height:cardH,
-        rx:8, ry:8, fill:'#fff'}));
+        rx:8, ry:8, fill:'#fff'
+      }));
 
       var innerPad = 12, barW = cardW - innerPad*2;
       var barH = 20, by = top + (cardH-barH)/2;
       var bx = sx + innerPad;
+
+      // 棒の背景
       svg.appendChild(SVG.el('rect', {x:bx, y:by, width:barW, height:barH,
-        rx:5, ry:5, fill:'#fff', stroke:COLOR_LINE, 'stroke-width':1.2}));
+        rx:5, ry:5, fill:'#fff'
+      }));
 
       var cellW = barW / it.n;
-      for (var i=1;i<it.n;i++){
-        var xi = bx + i*cellW;
-        svg.appendChild(SVG.el('line', {x1:xi, y1:by, x2:xi, y2:by+barH, stroke:'#999'}));
-      }
 
+      // 先に塗り
       if (it.k>0){
         svg.appendChild(SVG.el('rect', {x:bx+1, y:by+1,
           width:Math.max(0, it.k*cellW-2), height:barH-2,
-          rx:4, ry:4, fill:COLOR_FILL}));
+          rx:4, ry:4, fill:COLOR_FILL
+        }));
       }
+
+      // 区切り線（塗りの上に）
+      for (var i=1;i<it.n;i++){
+        var xi = bx + i*cellW;
+        svg.appendChild(SVG.el('line', {x1:xi, y1:by, x2:xi, y2:by+barH,
+          stroke:'#999'
+        }));
+      }
+
+      // 外枠（最前面）
+      svg.appendChild(SVG.el('rect', {x:bx, y:by, width:barW, height:barH,
+        rx:5, ry:5, fill:'none', stroke:COLOR_LINE, 'stroke-width':1.2
+      }));
+
+      // ラベル
       svg.appendChild(SVG.text(sx + cardW/2, top + cardH + 18, it.label,
         {'font-size':14, fill:'#2563eb', 'text-anchor':'middle'}));
     });
     return svg;
   }
 
+  // 簡易パーサ
   function parse(spec){
     var m1 = spec.match(/^(:?svg:)?barfrac-(\d+)-(\d+)$/);
     if (m1) return {kind:'bar', n:+m1[2], k:+m1[3]};
@@ -82,6 +116,7 @@
     return null;
   }
 
+  // レジストリ
   SVG.register(function(spec){
     var p = parse(spec);
     if (!p) return null;
