@@ -1,103 +1,108 @@
 <script>
+/* ========= SVG helper 前提（window.SVG: svg(), el(), text(), register()） ========= */
 (function (SVG) {
-  // テープ（定規）を描く共通関数
-  function renderTape(opts){
-    // 設定
-    var cmTotal = opts.cm || 6;          // 何cmぶん表示するか
-    var pxPerCm = opts.scale || 60;      // 1cmの横幅(px) → 1mm=pxPerCm/10
-    var mmStep  = pxPerCm / 10;
-    var PAD = 28;                         // 左右の余白
-    var W = Math.round(cmTotal * pxPerCm + PAD*2);
-    var H = opts.height || 120;
-    var baseY = 60;                       // テープのベースY
-    var tapeH = 18;
 
+  /* ---------------- テープ定規の描画（cm・mm） ---------------- */
+  function renderTape(opts){
+    // 基本寸法
+    var W = opts.width  || 560;
+    var H = opts.height || 140;
+    var pad = {l:36, r:16, t:26, b:42};         // 余白（下を広めに）
     var svg = SVG.svg(W, H);
 
-    // テープ本体
-    svg.appendChild(SVG.el('rect', {
-      x: PAD, y: baseY - tapeH/2, width: cmTotal*pxPerCm, height: tapeH,
-      rx: 3, ry: 3, fill: '#f9fafb', stroke: '#374151'
-    }));
+    // 目盛パラメータ
+    var cmStart = opts.cmStart || 0;            // 表示開始（cm）
+    var cmEnd   = opts.cmEnd   || 5;            // 表示終了（cm）
+    var showCmLabels = true;
 
-    // 目盛り（1mm / 5mm / 10mm=1cm）
-    for (var mm = 0; mm <= cmTotal*10; mm++){
-      var x = PAD + mm * mmStep;
-      var len = (mm%10===0) ? 16 : (mm%5===0) ? 10 : 6;
-      var y1 = baseY - tapeH/2; // テープ上辺
-      svg.appendChild(SVG.el('line', {x1:x, y1:y1, x2:x, y2:y1 - len, stroke:'#111'}));
-      // cmラベル
-      if (mm%10===0){
-        var cm = mm/10;
-        svg.appendChild(SVG.text(x, y1 - 22, (cm===0?'0':cm+'cm'), {'font-size':11, fill:'#111'}));
+    var railX = pad.l, railY = pad.t + 18;      // 目盛線の基準Y（上）
+    var railW = W - pad.l - pad.r;
+    var railH = 12;
+
+    // 本体のバー（読み取り用の受け皿）
+    var trayY = railY + 20;
+    svg.appendChild(SVG.el('rect', {x:railX, y:trayY, width:railW, height:22, rx:8, ry:8,
+      fill:'#f9fafb', stroke:'#374151', 'stroke-width':1.5}));
+
+    // 目盛（上側）
+    var totalMm = (cmEnd - cmStart) * 10;       // 1目盛=1mm(=0.1cm) として 0〜
+    var pxPerMm = railW / totalMm;
+
+    for (var i=0; i<=totalMm; i++){
+      var mm = i;
+      var x = railX + mm * pxPerMm;
+      var len = 7;  // 1mm
+      if (i % 10 === 0) len = 18;       // 1cm
+      else if (i % 5 === 0) len = 12;   // 5mm
+
+      svg.appendChild(SVG.el('line', {
+        x1:x, y1:railY, x2:x, y2:railY+len, stroke:'#111'
+      }));
+
+      // cm ラベル（上側）。0 は一度だけ表示
+      if (showCmLabels && i % 10 === 0){
+        var cm = cmStart + i/10;
+        var label = (cm===0)? '0' : cm + 'cm';
+        // 0 の“重複表示”を避けるため、明示的に先頭だけ出す
+        if (cm===0 || cm % 1 === 0){
+          svg.appendChild(SVG.text(x, railY-6, label, {
+            'font-size':12, fill:'#111', 'text-anchor':'middle'
+          }));
+        }
       }
     }
 
-    // 0の表示（左端）
-    svg.appendChild(SVG.text(PAD, baseY - 22, '0', {'font-size':11, fill:'#111', 'text-anchor':'start'}));
+    // 0（左端）の基準表示 —— ここでだけ 0 を出す（↑の cm ラベルと二重にならない）
+    // → すでに i=0 で '0' を出しているので追加の 0 は描かない
 
-    // 単色の塗り（0 から shadeCm まで）
-    if (typeof opts.shadeCm === 'number'){
-      var w = Math.max(0, Math.min(opts.shadeCm, cmTotal))*pxPerCm;
+    /* ---- 読み取り・ブロック・マーカーなどのオプション描画 ---- */
+
+    // 読み取り：0 から valueMm まで着色
+    if (opts.readMm != null){
+      var w = Math.max(0, Math.min(railW, opts.readMm * pxPerMm));
       svg.appendChild(SVG.el('rect', {
-        x: PAD, y: baseY - tapeH/2 + 2, width: w, height: tapeH - 4,
-        rx: 2, ry: 2, fill: '#bfdbfe'
+        x:railX+2, y:trayY+2, width:Math.max(0, w-4), height:18, rx:6, ry:6,
+        fill:'#bfdbfe'
       }));
     }
 
-    // 複数セグメント塗り
-    if (Array.isArray(opts.shadeSegments)){
-      opts.shadeSegments.forEach(function(seg){
-        var from = Math.max(0, Math.min(seg.from, cmTotal));
-        var to   = Math.max(0, Math.min(seg.to, cmTotal));
-        if (to <= from) return;
+    // 0.1cm (=1mm*10) ごとのブロック表示（数えやすいように上に薄帯）
+    if (opts.blocks && opts.blocks.length){
+      var by = trayY-14;
+      opts.blocks.forEach(function(b){
+        var x0 = railX + (b.startMm) * pxPerMm;
+        var x1 = railX + (b.endMm)   * pxPerMm;
         svg.appendChild(SVG.el('rect', {
-          x: PAD + from*pxPerCm,
-          y: baseY - tapeH/2 + 2,
-          width: (to-from)*pxPerCm,
-          height: tapeH - 4,
-          rx: 2, ry: 2,
-          fill: seg.color || '#bfdbfe'
+          x:x0, y:by, width:(x1-x0), height:10, rx:2, ry:2,
+          fill:b.fill || '#93c5fd'
         }));
       });
-    }
-
-    // セグメント注記（かっこ代わりのガイド＋テキスト）
-    if (Array.isArray(opts.segmentNotes)){
-      opts.segmentNotes.forEach(function(n){
-        var x1 = PAD + n.from*pxPerCm, x2 = PAD + n.to*pxPerCm;
-        var mid = (x1 + x2)/2;
-        var topY = baseY - tapeH/2 - 30;
-        // ガイド（括弧）
-        svg.appendChild(SVG.el('line', {x1:x1, y1:topY, x2:x1, y2:topY+10, stroke:'#2563eb'}));
-        svg.appendChild(SVG.el('line', {x1:x1, y1:topY, x2:x2, y2:topY, stroke:'#2563eb'}));
-        svg.appendChild(SVG.el('line', {x1:x2, y1:topY, x2:x2, y2:topY+10, stroke:'#2563eb'}));
-        // テキスト
-        svg.appendChild(SVG.text(mid, topY - 6, n.text, {'font-size':12, fill:'#2563eb'}));
-      });
-    }
-
-    // ピン（候補位置）：三角マーカーを “上側” に、ラベルは “下側” に出す（目盛りにかぶらない）
-    if (Array.isArray(opts.pinsCm)){
-      var labels = opts.labels || [];
-      opts.pinsCm.forEach(function(cmPos, i){
-        var X = PAD + cmPos*pxPerCm;
-        var triY = baseY - tapeH/2 - 2;            // テープ上辺の少し上
-        var tri = [
-          [X, triY-10], [X-6, triY], [X+6, triY]
-        ];
-        // 三角形
-        svg.appendChild(SVG.el('polygon', {
-          points: tri.map(function(p){return p.join(',');}).join(' '),
-          fill: '#2563eb'
+      // 説明
+      if (opts.blocksNote){
+        svg.appendChild(SVG.text(W-8, by-6, opts.blocksNote, {
+          'font-size':11, fill:'#374151', 'text-anchor':'end'
         }));
-        // 細い縦線（上から指す感じで、目盛りは避けて短く）
-        svg.appendChild(SVG.el('line', {x1:X, y1:triY-10, x2:X, y2:triY-14, stroke:'#2563eb', 'stroke-width':2}));
+      }
+    }
 
-        // ラベル（下側）
-        var label = labels[i] || '';
-        if (label){
-          svg.appendChild(SVG.text(X, baseY + tapeH/2 + 22, label, {'font-size':12, fill:'#2563eb'}));
+    // 位置選択マーカー（▲）……見やすいよう「下側」に配置
+    if (opts.picks && opts.picks.length){
+      var markBaseY = trayY + 36;  // 下側
+      opts.picks.forEach(function(p){
+        var x = railX + (p.mm) * pxPerMm;
+        var s = 7; // 三角の半幅
+        // ▲
+        var path = [
+          'M', x,           markBaseY,
+          'l',  s,         -12,
+          'h', -2*s,
+          'z'
+        ].join(' ');
+        svg.appendChild(SVG.el('path', {d:path, fill:'#2563eb'}));
+        if (p.label){
+          svg.appendChild(SVG.text(x, markBaseY+18, p.label, {
+            'font-size':14, fill:'#2563eb', 'text-anchor':'middle'
+          }));
         }
       });
     }
@@ -105,46 +110,52 @@
     return svg;
   }
 
-  // ===== 個別アセット =====
+  /* ---------------- アセット登録 ---------------- */
 
-  // 1108/1109：読みとり（3cm5mm = 3.5cm）
-  // 0 〜 5cm のテープに、0→3.5cm を水色で塗り
-  function tape_dec_read_35mm(){
-    return renderTape({cm:5, shadeCm:3.5});
-  }
-
-  // 1110：合成（1cmが3つ、0.1cmが7つ → 3.7cm）
-  // 0→3cm 濃い水色、3→3.7cm 薄い水色、上に「1cm×3」「0.1cm×7」の注記
-  function tape_dec_blocks_3cm_7tenths(){
-    return renderTape({
-      cm:5,
-      shadeSegments: [
-        {from:0, to:3,   color:'#93c5fd'},
-        {from:3, to:3.7, color:'#bfdbfe'}
-      ],
-      segmentNotes: [
-        {from:0, to:3,   text:'1cm × 3'},
-        {from:3, to:3.7, text:'0.1cm × 7'}
-      ]
-    });
-  }
-
-  // 1111：指定位置（4.8cm）
-  // 候補は ア=4.7, イ=4.8(正解), ウ=4.9, エ=5.0
-  function tape_dec_shade_4_8(){
-    return renderTape({
-      cm:6,
-      pinsCm: [4.7, 4.8, 4.9, 5.0],
-      labels: ['ア','イ','ウ','エ']
-    });
-  }
-
-  // レジストリ登録
+  // 1108/1109 共通：3cm5mm を読む
   SVG.register(function(spec){
-    if (spec === 'tape_dec_read_35mm' || spec === 'tape:dec_read_35mm') return tape_dec_read_35mm();
-    if (spec === 'tape_dec_blocks_3cm_7tenths' || spec === 'tape:dec_blocks_3cm_7tenths') return tape_dec_blocks_3cm_7tenths();
-    if (spec === 'tape_dec_shade_4_8' || spec === 'tape:dec_shade_4_8') return tape_dec_shade_4_8();
+    if (spec === 'tape_dec_read_35mm' || spec === 'svg:tape_dec_read_35mm'){
+      var svg = renderTape({ cmStart:0, cmEnd:5, readMm:35 });
+      return svg;
+    }
     return null;
   });
+
+  // 1110：3cm と 0.1cm×7 をブロックで見せる（合成 3.7cm）
+  SVG.register(function(spec){
+    if (spec === 'tape_dec_blocks_3cm_7tenths' || spec === 'svg:tape_dec_blocks_3cm_7tenths'){
+      var blocks = [];
+      // 1cm×3（0〜30mm）
+      blocks.push({startMm:0, endMm:10, fill:'#bae6fd'});
+      blocks.push({startMm:10, endMm:20, fill:'#bae6fd'});
+      blocks.push({startMm:20, endMm:30, fill:'#bae6fd'});
+      // 0.1cm×7（30〜37mm）
+      for (var m=30; m<37; m++){
+        blocks.push({startMm:m, endMm:m+1, fill:'#93c5fd'});
+      }
+      return renderTape({
+        cmStart:0, cmEnd:5,
+        readMm:37,                     // 実長も薄い帯と合わせて 3.7cm を示す
+        blocks: blocks,
+        blocksNote:'上：1cm×3 と 0.1cm×7'
+      });
+    }
+    return null;
+  });
+
+  // 1111：4.8cm の位置を選ぶ（ア=4.7 / イ=4.8 / ウ=4.9 / エ=5.0）
+  SVG.register(function(spec){
+    if (spec === 'tape_dec_shade_4_8' || spec === 'svg:tape_dec_shade_4_8'){
+      var picks = [
+        {mm:47, label:'ア'},
+        {mm:48, label:'イ'},   // ←正解
+        {mm:49, label:'ウ'},
+        {mm:50, label:'エ'}
+      ];
+      return renderTape({ cmStart:0, cmEnd:6, picks:picks });
+    }
+    return null;
+  });
+
 })(window.SVG);
 </script>
