@@ -1,117 +1,169 @@
 <script>
-// == Tape (ruler) assets: cm/mm ==
+/* == Tape (ruler) assets: cm/mm ===========================================
+ * 改善点
+ *  - 動的パース：
+ *      svg:tape_dec_read_35mm   → 35mm ハイライト（任意の mm で可）
+ *      svg:tape_dec_blocks_3cm_7tenths → 3cm + 0.1cm×7 の合成（cm/小数第一位を動的に）
+ *  - 目盛りラベルの重複バグ修正（0 が2つ出ない）
+ *  - ▲マーカーを“上向き（テープの下に並べてテープ方向を指す）”に統一
+ *  - 合成(1110)の「1cm×3 などの注記テキスト」は非表示
+ * ======================================================================= */
 (function (SVG) {
+
+  // 汎用テープ
   function renderTape(opts){
     var W = opts.width  || 640;
     var H = opts.height || 160;
-    var pad = {l:42, r:18, t:28, b:56};      // 下に▲とラベルを置く
+    var pad = {l:42, r:18, t:28, b:56};             // 下に▲とラベル
     var svg = SVG.svg(W, H);
 
-    var cmStart = opts.cmStart ?? 0;
-    var cmEnd   = opts.cmEnd   ?? 6;
+    var cmStart = (opts.cmStart != null) ? opts.cmStart : 0;
+    var cmEnd   = (opts.cmEnd   != null) ? opts.cmEnd   : 6;
 
+    // レール位置
     var railX = pad.l, railW = W - pad.l - pad.r;
     var railTopY = pad.t;
     var trayY = railTopY + 26, trayH = 24;
 
-    // トレー
+    // 下の“トレー”
     svg.appendChild(SVG.el('rect', {
       x:railX, y:trayY, width:railW, height:trayH, rx:10, ry:10,
       fill:'#f9fafb', stroke:'#374151', 'stroke-width':1.6
     }));
 
-    // 目盛り
-    var totalMm = (cmEnd - cmStart) * 10;  // 1目盛=1mm
+    // 1mm 目盛り
+    var totalMm = (cmEnd - cmStart) * 10;            // 1cm=10mm
     var pxPerMm = railW / totalMm;
 
     for (var i=0; i<=totalMm; i++){
       var x = railX + i * pxPerMm;
-      var len = 8;                               // 1mm
-      if (i % 10 === 0) len = 20;                // 1cm
-      else if (i % 5 === 0) len = 13;            // 5mm
+      var len = 8;                                   // 1mm
+      if (i % 10 === 0) len = 20;                    // 1cm
+      else if (i % 5 === 0) len = 13;                // 5mm
 
       svg.appendChild(SVG.el('line', {x1:x, y1:railTopY, x2:x, y2:railTopY+len, stroke:'#111'}));
 
-      // cmラベル（上）—0 は最初だけ
+      // cmラベル（上）：先頭だけ "0"、以降は "Ncm"
       if (i % 10 === 0){
         var cm = cmStart + i/10;
-        var label = (cm===0) ? '0' : (cm + 'cm');
-        svg.appendChild(SVG.text(x, railTopY-6, label, {'font-size':12, fill:'#111', 'text-anchor':'middle'}));
+        var label = (cm === 0) ? '0' : (cm + 'cm');
+        // 端の 0 を1回だけ
+        if (!(cm === 0 && i !== 0)){
+          svg.appendChild(SVG.text(x, railTopY-6, label, {
+            'font-size':12, fill:'#111', 'text-anchor':'middle'
+          }));
+        }
       }
     }
 
-    // 読み取り帯（任意）
+    // 連続ハイライト（読み取り用）
     if (opts.readMm != null){
       var w = Math.max(0, Math.min(railW, opts.readMm * pxPerMm));
       svg.appendChild(SVG.el('rect', {
-        x:railX+2, y:trayY+2, width:Math.max(0, w-4), height:trayH-4, rx:8, ry:8, fill:'#c7e0fe'
+        x:railX+2, y:trayY+2, width:Math.max(0, w-4), height:trayH-4,
+        rx:8, ry:8, fill:'#c7e0fe'
       }));
     }
 
-    // 合成ブロック（任意）
+    // 合成ブロック（cm部と 0.1cm 部分）
     if (opts.blocks && opts.blocks.length){
-      var by = railTopY + 6;
+      var by = railTopY + 6;                          // 目盛りのすぐ下（視線移動が少ない）
       opts.blocks.forEach(function(b){
         var x0 = railX + b.startMm * pxPerMm;
         var x1 = railX + b.endMm   * pxPerMm;
-        svg.appendChild(SVG.el('rect', {x:x0, y:by, width:(x1-x0), height:10, rx:2, ry:2, fill:b.fill || '#93c5fd'}));
+        svg.appendChild(SVG.el('rect', {
+          x:x0, y:by, width:(x1-x0), height:10,
+          rx:2, ry:2, fill:b.fill || '#93c5fd'
+        }));
       });
-      if (opts.blocksNote){
-        svg.appendChild(SVG.text(W-8, by-6, opts.blocksNote, {'font-size':11, fill:'#374151', 'text-anchor':'end'}));
+      // 注記は出さない（依頼通り）
+    }
+
+    // 位置選択 ▲（下側）— 上向きにしてテープを指す
+    if (opts.picks && opts.picks.length){
+      var baseY = trayY + trayH + 18;                 // ▲のベースライン
+      var triH = 14, triW = 8;
+      opts.picks.forEach(function(p){
+        var cx = railX + p.mm * pxPerMm;              // ▲の中心
+        var path = [
+          'M', cx, baseY - triH,                      // 先端（上）
+          'L', (cx - triW), baseY,                    // 左下
+          'L', (cx + triW), baseY,                    // 右下
+          'Z'
+        ].join(' ');
+        svg.appendChild(SVG.el('path', {d:path, fill:'#2563eb'}));
+      });
+      if (opts.pickLabel){
+        var leftX  = railX + (opts.picks[0].mm) * pxPerMm - triW;
+        var rightX = railX + (opts.picks[opts.picks.length-1].mm) * pxPerMm + triW;
+        var cx = (leftX + rightX) / 2;
+        svg.appendChild(SVG.text(cx, baseY+20, opts.pickLabel, {
+          'font-size':16, fill:'#2563eb', 'text-anchor':'middle'
+        }));
       }
     }
 
-    // 位置選択 ▲（下側）
-    if (opts.picks && opts.picks.length){
-      var markY = trayY + trayH + 20;
-      var triH = 14, triW = 8;
-      opts.picks.forEach(function(p){
-        var x = railX + p.mm * pxPerMm;
-        var d = ['M', x, markY, 'l', triW, 0, 'l', -triW, -triH, 'z'].join(' ');
-        svg.appendChild(SVG.el('path', {d:d, fill:'#2563eb'}));
-      });
-      if (opts.pickLabel){
-        var leftX  = railX + (opts.picks[0].mm) * pxPerMm;
-        var rightX = railX + (opts.picks[opts.picks.length-1].mm) * pxPerMm + triW;
-        var cx = (leftX + rightX) / 2;
-        svg.appendChild(SVG.text(cx, markY+22, opts.pickLabel, {'font-size':16, fill:'#2563eb', 'text-anchor':'middle'}));
-      }
-    }
     return svg;
   }
 
-  // --- Assets ---
-  // 1108/1109: 読み取り（3cm5mm）
-  SVG.register(function(spec){
-    if (spec === 'tape_dec_read_35mm' || spec === 'svg:tape_dec_read_35mm'){
-      return renderTape({cmStart:0, cmEnd:5, readMm:35});
-    }
-    return null;
-  });
+  // ------- 動的パーサ -------
+  function parse(spec){
+    // 読み取り：tape_dec_read_XXmm
+    var m1 = spec.match(/^(:?svg:)?tape_dec_read_(\d{1,3})mm$/);
+    if (m1) return {kind:'read', mm: parseInt(m1[2],10)};
 
-  // 1110: 合成 3cm + 0.1cm×7 = 3.7cm
+    // 合成：tape_dec_blocks_3cm_7tenths（cm は整数、tenths は 0〜9）
+    var m2 = spec.match(/^(:?svg:)?tape_dec_blocks_(\d+)cm_(\d)tenths$/);
+    if (m2) return {kind:'blocks', cm: parseInt(m2[2],10), tenths: parseInt(m2[3],10)};
+
+    // 位置指定：固定ID（4.8cm の▲）
+    if (/^(:?svg:)?tape_dec_shade_4_8$/.test(spec)) return {kind:'shade48'};
+
+    return null;
+  }
+
+  // ------- レジストリ -------
   SVG.register(function(spec){
-    if (spec === 'tape_dec_blocks_3cm_7tenths' || spec === 'svg:tape_dec_blocks_3cm_7tenths'){
+    var p = parse(spec);
+    if (!p) return null;
+
+    // 読み取り
+    if (p.kind === 'read'){
+      var mm = p.mm;                                  // 例：35
+      // レンジは読取り位置が中央付近に入るように自動調整
+      var endCm = Math.max(4, Math.ceil((mm/10)+1));
+      return renderTape({ cmStart:0, cmEnd:endCm, readMm:mm });
+    }
+
+    // 合成（cm部＋0.1cm部）
+    if (p.kind === 'blocks'){
+      var whole = p.cm;            // 例：3 cm
+      var tenths = p.tenths;       // 例：7 → 0.7 cm
+      var startMm = 0;
+      var mmWhole = whole * 10;
+      var mmTenthsStart = mmWhole;
+      var mmTenthsEnd   = mmWhole + tenths;
+
+      // cm 部（薄色）＋ 0.1cm 部分（少し濃い色）
       var blocks = [];
-      blocks.push({startMm:0, endMm:10, fill:'#bae6fd'});
-      blocks.push({startMm:10, endMm:20, fill:'#bae6fd'});
-      blocks.push({startMm:20, endMm:30, fill:'#bae6fd'});
-      for (var m=30; m<37; m++) blocks.push({startMm:m, endMm:m+1, fill:'#93c5fd'});
-      return renderTape({cmStart:0, cmEnd:5, readMm:37, blocks:blocks, blocksNote:'1cm×3 と 0.1cm×7'});
-    }
-    return null;
-  });
+      if (mmWhole > 0) blocks.push({startMm: startMm, endMm: mmWhole, fill:'#bae6fd'});
+      if (tenths  > 0) blocks.push({startMm: mmTenthsStart, endMm: mmTenthsEnd, fill:'#93c5fd'});
 
-  // 1111: 位置指定（4.8cm）▲を下側に並べ、下に「アイウエ」
-  SVG.register(function(spec){
-    if (spec === 'tape_dec_shade_4_8' || spec === 'svg:tape_dec_shade_4_8'){
+      var endCm = Math.max(whole + 1, 5); // 少し余白のあるレンジ
+      return renderTape({ cmStart:0, cmEnd:endCm, blocks:blocks, readMm:mmTenthsEnd });
+    }
+
+    // 位置指定（4.8cm）
+    if (p.kind === 'shade48'){
       return renderTape({
         cmStart:0, cmEnd:6,
         picks:[{mm:47},{mm:48},{mm:49},{mm:50}],
         pickLabel:'アイウエ'
       });
     }
+
     return null;
   });
+
 })(window.SVG);
 </script>
