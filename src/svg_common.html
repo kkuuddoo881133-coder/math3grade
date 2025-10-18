@@ -16,6 +16,11 @@
   }
   function line(x1, y1, x2, y2, a) { a = a || {}; a.x1=x1; a.y1=y1; a.x2=x2; a.y2=y2; return el('line', a); }
   function circle(cx, cy, r, a) { a=a||{}; a.cx=cx; a.cy=cy; a.r=r; return el('circle', a); }
+  function rect(x, y, width, height, a) {
+    a = a || {};
+    a.x = x; a.y = y; a.width = width; a.height = height;
+    return el('rect', a);
+  }
   function text(x, y, s, a) {
     a = a || {};
     a.x = x; a.y = y; a.text = s;
@@ -29,6 +34,7 @@
   SVG.el = el;
   SVG.svg = svg;
   SVG.line = line;
+  SVG.rect = rect;
   SVG.circle = circle;
   SVG.text = text;
 
