@@ -329,6 +329,72 @@ function getTodaySummary(user_id) {
   return { done, corrects, date: today };
 }
 
+// ===== 日次アクティビティ =====
+function getDailyActivity(user_id, days) {
+  mustAllow_(user_id);
+
+  let windowDays = Number(days);
+  if (!isFinite(windowDays)) windowDays = 30;
+  windowDays = Math.max(1, Math.min(180, Math.floor(windowDays)));
+
+  const tz = Session.getScriptTimeZone() || 'Asia/Tokyo';
+  const todayDate = new Date();
+  const todayStr = Utilities.formatDate(todayDate, tz, 'yyyy-MM-dd');
+  const startDate = new Date(todayDate.getTime() - (windowDays - 1) * 24 * 60 * 60 * 1000);
+  const startStr = Utilities.formatDate(startDate, tz, 'yyyy-MM-dd');
+
+  const ss = SpreadsheetApp.openById(getSpreadsheetId_());
+  const sh = ss.getSheetByName(SHEET_RESPONSES);
+  if (!sh) throw new Error('Responses シートが見つかりません');
+
+  const data = sh.getDataRange().getValues();
+  const header = data.shift();
+  const idxTs = header.indexOf('timestamp');
+  const idxUid = header.indexOf('user_id');
+  if (idxTs === -1 || idxUid === -1) throw new Error('Responses ヘッダが正しくありません');
+
+  const countsByDate = {};
+  let totalSolved = 0;
+
+  data.forEach(row => {
+    if (String(row[idxUid]) !== String(user_id)) return;
+    const ts = row[idxTs] instanceof Date ? row[idxTs] : new Date(row[idxTs]);
+    if (!ts || !isFinite(ts.getTime())) return;
+    const dstr = Utilities.formatDate(ts, tz, 'yyyy-MM-dd');
+    if (dstr < startStr || dstr > todayStr) return;
+    countsByDate[dstr] = (countsByDate[dstr] || 0) + 1;
+    totalSolved++;
+  });
+
+  const daysDetail = [];
+  let rollingStreak = 0;
+  let longestStreak = 0;
+  let activeDays = 0;
+
+  for (let offset = windowDays - 1; offset >= 0; offset--) {
+    const d = new Date(todayDate.getTime() - offset * 24 * 60 * 60 * 1000);
+    const dstr = Utilities.formatDate(d, tz, 'yyyy-MM-dd');
+    const count = countsByDate[dstr] || 0;
+    if (count > 0) {
+      rollingStreak++;
+      longestStreak = Math.max(longestStreak, rollingStreak);
+      activeDays++;
+    } else {
+      rollingStreak = 0;
+    }
+    daysDetail.push({ date: dstr, count: count });
+  }
+
+  const currentStreak = rollingStreak;
+
+  return {
+    window: { start: startStr, end: todayStr, length: windowDays },
+    days: daysDetail,
+    streak: { current: currentStreak, longest: longestStreak },
+    totals: { solved: totalSolved, activeDays: activeDays }
+  };
+}
+
 // ===== 小ヘルパー =====
 function shuffle_(arr) {
   for (let i = arr.length - 1; i > 0; i--) {

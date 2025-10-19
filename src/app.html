@@ -70,6 +70,7 @@ var domainLoadState = {
 // 'force_C': 表示上は常にCが正解
 // 'cycle'  : A→B→C→Dと巡回で正解位置を分散
 const ANSWER_POSITION_MODE = 'shuffle';
+const DAILY_ACTIVITY_WINDOW = 42; // 6週間（7×6グリッド）
 
 let _cycleNextIndex = 0; // cycle用カウンタ（0:A,1:B,2:C,3:D）
 
@@ -692,41 +693,71 @@ function initUI() {
     }, false);
   }
 
+  function loadSummaryScreen(){
+    var summaryEl = document.getElementById('summary');
+    var streakEl = document.getElementById('summary-streak');
+    var calendarEl = document.getElementById('activityCalendar');
+
+    if (summaryEl) summaryEl.textContent = 'きょうの けっかを よみこんでいます…';
+    if (streakEl) {
+      streakEl.textContent = '';
+    }
+    if (calendarEl) {
+      calendarEl.innerHTML = '';
+      calendarEl.setAttribute('aria-busy', 'true');
+      calendarEl.setAttribute('aria-colcount', '7');
+      calendarEl.setAttribute('aria-rowcount', String(Math.ceil(DAILY_ACTIVITY_WINDOW / 7)));
+    }
+
+    google.script.run
+      .withSuccessHandler(function(s){
+        if (summaryEl) {
+          summaryEl.innerHTML =
+            'きょう（' + s.date + '）は <strong>' + s.done + '</strong> 問 といて、<strong>' + s.corrects + '</strong> 問 せいかい！';
+        }
+        renderPixelSummary();
+        showScreen('summary');
+
+        google.script.run
+          .withSuccessHandler(function(activity){
+            renderDailyActivity(activity);
+          })
+          .withFailureHandler(function(err){
+            console.error('getDailyActivity failed', err);
+            var calEl = document.getElementById('activityCalendar');
+            if (calEl) calEl.removeAttribute('aria-busy');
+            var streakHost = document.getElementById('summary-streak');
+            if (streakHost) {
+              streakHost.textContent = 'かつどうカレンダーを ひらけませんでした。';
+            }
+          })
+          .getDailyActivity(state.user_id, DAILY_ACTIVITY_WINDOW);
+      })
+      .withFailureHandler(function(err){
+        console.error('getTodaySummary failed', err);
+        if (summaryEl) summaryEl.textContent = 'サマリーを取得できませんでした。';
+        var calEl = document.getElementById('activityCalendar');
+        if (calEl) calEl.removeAttribute('aria-busy');
+        var streakHost = document.getElementById('summary-streak');
+        if (streakHost) {
+          streakHost.textContent = 'かつどうカレンダーを ひらけませんでした。';
+        }
+        showScreen('summary');
+      })
+      .getTodaySummary(state.user_id);
+  }
+
   if (nextBtn) nextBtn.onclick = function(){
     state.session.idx++;
     if (state.session.idx >= state.session.items.length) {
-      google.script.run
-        .withSuccessHandler(function(s){
-          document.getElementById('summary').innerHTML =
-            'きょう（' + s.date + '）は <strong>' + s.done + '</strong> 問 といて、<strong>' + s.corrects + '</strong> 問 せいかい！';
-          renderPixelSummary();
-          showScreen('summary');
-        })
-        .withFailureHandler(function(err){
-          console.error('getTodaySummary failed', err);
-          document.getElementById('summary').textContent = 'サマリーを取得できませんでした。';
-          showScreen('summary');
-        })
-        .getTodaySummary(state.user_id);
+      loadSummaryScreen();
     } else {
       showQuestion(); showScreen('quiz');
     }
   };
 
   if (finishBtn) finishBtn.onclick = function(){
-    google.script.run
-      .withSuccessHandler(function(s){
-        document.getElementById('summary').innerHTML =
-          'きょう（' + s.date + '）は <strong>' + s.done + '</strong> 問 といて、<strong>' + s.corrects + '</strong> 問 せいかい！';
-        renderPixelSummary();
-        showScreen('summary');
-      })
-      .withFailureHandler(function(err){
-        console.error('getTodaySummary failed', err);
-        document.getElementById('summary').textContent = 'サマリーを取得できませんでした。';
-        showScreen('summary');
-      })
-      .getTodaySummary(state.user_id);
+    loadSummaryScreen();
   };
 
   // === キーボード操作 ===
@@ -752,6 +783,116 @@ function initUI() {
     }
   });
 
+}
+
+function formatCalendarDayLabel(dateStr){
+  if (!dateStr) return '';
+  var parts = String(dateStr).split('-');
+  if (parts.length !== 3) return dateStr;
+  var month = parts[1].replace(/^0/, '');
+  var day = parts[2].replace(/^0/, '');
+  return month + '/' + day;
+}
+
+function buildActivityAriaLabel(dateStr, count){
+  if (!dateStr) return '';
+  var parts = String(dateStr).split('-');
+  var label;
+  if (parts.length === 3) {
+    var month = parts[1].replace(/^0/, '');
+    var day = parts[2].replace(/^0/, '');
+    label = month + '月' + day + '日';
+  } else {
+    label = dateStr;
+  }
+  if (count > 0) {
+    return label + 'は ' + count + '問 ときました';
+  }
+  return label + 'は おやすみでした';
+}
+
+function renderDailyActivity(activity){
+  var calendarEl = document.getElementById('activityCalendar');
+  var streakEl = document.getElementById('summary-streak');
+  if (!calendarEl) return;
+
+  calendarEl.innerHTML = '';
+  calendarEl.removeAttribute('aria-busy');
+  calendarEl.setAttribute('role', 'grid');
+  calendarEl.setAttribute('aria-colcount', '7');
+  calendarEl.removeAttribute('aria-rowcount');
+
+  var days = (activity && Array.isArray(activity.days)) ? activity.days : [];
+  var rows = Math.ceil(days.length / 7);
+  if (rows > 0) {
+    calendarEl.setAttribute('aria-rowcount', String(rows));
+  }
+
+  var totalSolved = activity && activity.totals && isFinite(activity.totals.solved)
+    ? Number(activity.totals.solved) : 0;
+  var streak = activity && activity.streak ? activity.streak : { current: 0, longest: 0 };
+
+  if (streakEl) {
+    var message;
+    if (totalSolved > 0) {
+      message = 'さいきん ' + totalSolved + '問 / れんぞく ' + streak.current + '日 (さいだい ' + streak.longest + '日)';
+    } else {
+      message = 'さいきんの きろくは まだ ありません。';
+    }
+    streakEl.textContent = message;
+  }
+
+  if (days.length === 0) {
+    var empty = document.createElement('div');
+    empty.className = 'activity-calendar-empty';
+    empty.setAttribute('role', 'note');
+    empty.textContent = 'きろくは まだ ありません。';
+    calendarEl.appendChild(empty);
+    return;
+  }
+
+  var todayStr = activity && activity.window ? activity.window.end : '';
+
+  for (var i = 0; i < days.length; i++) {
+    var info = days[i] || {};
+    var dateStr = info.date || '';
+    var count = Number(info.count || 0);
+    if (!isFinite(count)) count = 0;
+
+    var cell = document.createElement('div');
+    cell.className = 'activity-calendar-day';
+    var level = 0;
+    if (count >= 6) level = 4;
+    else if (count >= 4) level = 3;
+    else if (count >= 2) level = 2;
+    else if (count >= 1) level = 1;
+    cell.classList.add('level-' + level);
+    if (dateStr === todayStr) {
+      cell.classList.add('is-today');
+      cell.setAttribute('aria-current', 'date');
+    }
+
+    cell.setAttribute('role', 'gridcell');
+    cell.setAttribute('tabindex', '-1');
+    var ariaLabel = buildActivityAriaLabel(dateStr, count);
+    if (ariaLabel) {
+      cell.setAttribute('aria-label', ariaLabel);
+      cell.setAttribute('title', ariaLabel);
+    }
+
+    var labelEl = document.createElement('span');
+    labelEl.className = 'activity-calendar-day-date';
+    labelEl.textContent = formatCalendarDayLabel(dateStr);
+
+    var countEl = document.createElement('span');
+    countEl.className = 'activity-calendar-day-count';
+    countEl.textContent = count > 0 ? String(count) : '休';
+
+    cell.dataset.count = String(count);
+    cell.appendChild(labelEl);
+    cell.appendChild(countEl);
+    calendarEl.appendChild(cell);
+  }
 }
 
 // DOM準備後に初期化
