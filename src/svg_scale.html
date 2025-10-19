@@ -6,93 +6,129 @@
  * ============================================== */
 (function (SVG) {
 
-  /* ---------- 円弧メーター描画 ---------- */
+  /* ---------- 円弧メーター描画（枠内に必ず収まる幾何） ---------- */
   function renderScale(opts){
     // opts: {max, step, value, width, height, compact, showValue}
     var W = opts.width  || 280;
     var H = opts.height || 190;
     var svg = SVG.svg(W, H);
+    svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
 
-    var compact = !!opts.compact;          // 小型（pick用）
-    var pad = compact ? {x:6, y:4} : {x:10, y:10};
+    var compact = !!opts.compact;                  // 小型（4択カード用）
 
-    // 外枠（小型では描かない）
+    // 余白（外枠とラベル用）
+    var padX = compact ? 8 : 12;
+    var padY = compact ? 8 : 12;
+
+    // 外枠（小型は省略）
     if (!compact){
-      svg.appendChild(SVG.el('rect',{
-        x:pad.x, y:pad.y, width:W-pad.x*2, height:H-pad.y*2, rx:12, ry:12,
-        fill:'#fff', stroke:'#374151','stroke-width':1.6
+      svg.appendChild(SVG.el('rect', {
+        x:padX, y:padY, width:W - padX*2, height:H - padY*2, rx:12, ry:12,
+        fill:'#fff', stroke:'#374151', 'stroke-width':1.6
       }));
     }
 
-    // 幾何
+    // 幾何：中心は「内側下辺上」に置く（= はみ出しにくい）
     var cx = W/2;
-    var cy = H - (compact? 10 : 14);                // 下側に余白
-    var R  = Math.min(W*(compact?0.46:0.42), H*(compact?0.92:0.78));
+    var yBottom = H - padY;        // 内側下端
+    var cy = yBottom;
+
+    // 目盛の外側オフセットと安全余白
+    var tickOffset = compact ? 10 : 18;   // 旧コードのベース値を流用
+    var safe = compact ? 2 : 4;
+
+    // 「右端」「上端」に収めるための R の上限
+    var RlimitRight = (W - padX - safe) - cx + tickOffset;
+    var RlimitTop   = (cy - (padY + safe)) + tickOffset;
+
+    // 半径（下限も少し確保して見た目を安定）
+    var R = Math.max(28, Math.min(RlimitRight, RlimitTop));
 
     var max = opts.max, step = opts.step;
-    var value = Math.max(0, Math.min(max, (opts.value||0)));
+    var value = Math.max(0, Math.min(max, (opts.value || 0)));
 
     // 目盛（-90°〜+90°）
-    var totalTicks = Math.round(max/step);
+    var totalTicks = Math.round(max / step);
     for (var i=0; i<=totalTicks; i++){
-      var ratio = i/totalTicks;
+      var g = i * step;
+      var ratio = i / totalTicks;                // 0..1
       var ang = (-Math.PI/2) + (Math.PI * ratio);
 
+      // 1本の長さ（強調間隔）
       var len = compact ? 7 : 8;
-      var g = i*step;
-      if ( (max===1000 && g%100===0) || (max===2000 && g%200===0) ) len = compact? 11 : 13;
+      if ((max === 1000 && g % 100 === 0) || (max === 2000 && g % 200 === 0)) {
+        len = compact ? 11 : 13;
+      }
 
-      var x1 = cx + Math.cos(ang) * (R- (compact? 10 : 18));
-      var y1 = cy + Math.sin(ang) * (R- (compact? 10 : 18));
-      var x2 = cx + Math.cos(ang) * (R- (compact? 10 : 18) - len);
-      var y2 = cy + Math.sin(ang) * (R- (compact? 10 : 18) - len);
-      svg.appendChild(SVG.el('line',{x1:x1,y1:y1,x2:x2,y2:y2,stroke:'#111'}));
+      // 外側/内側の点（外側が枠内に収まるよう R を決定済）
+      var outer = R - tickOffset;
+      var inner = outer - len;
 
-      // 主要ラベル（小型は控えめ・0/中値/最大のみ）
+      var x1 = cx + Math.cos(ang) * outer;
+      var y1 = cy + Math.sin(ang) * outer;
+      var x2 = cx + Math.cos(ang) * inner;
+      var y2 = cy + Math.sin(ang) * inner;
+
+      svg.appendChild(SVG.el('line', {x1:x1, y1:y1, x2:x2, y2:y2, stroke:'#111'}));
+
+      // 主要ラベル
       var showMajor =
-        (g===0) || (g===max) ||
-        (!compact && (max===1000 && g%200===0)) ||
-        (!compact && (max===2000 && g%500===0)) ||
-        ( compact && g===Math.round(max/2) );
+        (g === 0) || (g === max) ||
+        (!compact && (max === 1000 && g % 200 === 0)) ||
+        (!compact && (max === 2000 && g % 500 === 0)) ||
+        ( compact && g === Math.round(max/2) );
 
       if (showMajor){
-        var lx = cx + Math.cos(ang) * (R - (compact? 22 : 36));
-        var ly = cy + Math.sin(ang) * (R - (compact? 22 : 36)) + 4;
-        var txt = (max===2000 && g%1000===0) ? (g/1000)+'kg' : (g===0? '0' : g+'g');
+        var rLabel = compact ? (outer - 12) : (outer - 18);
+        var lx = cx + Math.cos(ang) * rLabel;
+        var ly = cy + Math.sin(ang) * rLabel + 4;
+        var txt = (max === 2000 && g % 1000 === 0) ? (g/1000) + 'kg'
+                 : (g === 0 ? '0' : g + 'g');
+
         svg.appendChild(SVG.text(lx, ly, txt, {
-          'font-size': compact? 10 : 11, fill:'#111', 'text-anchor':'middle'
+          'font-size': compact ? 10 : 11, fill:'#111', 'text-anchor':'middle'
         }));
       }
     }
 
-    // 針
-    var angV = (-Math.PI/2) + Math.PI * (value/max);
-    var nx = cx + Math.cos(angV) * (R - (compact? 16 : 28));
-    var ny = cy + Math.sin(angV) * (R - (compact? 16 : 28));
-    svg.appendChild(SVG.el('line',{
-      x1:cx, y1:cy, x2:nx, y2:ny, stroke:'#2563eb','stroke-width': compact? 2.6 : 3.2
-    }));
-    svg.appendChild(SVG.el('circle',{cx:cx, cy:cy, r: compact? 4 : 5, fill:'#2563eb'}));
+    // 針（外側から少し内側に）
+    var angV = (-Math.PI/2) + Math.PI * (value / max);
+    var rNeedle = (compact ? outer - 2 : outer - 6);
+    var nx = cx + Math.cos(angV) * rNeedle;
+    var ny = cy + Math.sin(angV) * rNeedle;
 
-    // 値（小型は非表示推奨）
+    svg.appendChild(SVG.el('line', {
+      x1:cx, y1:cy, x2:nx, y2:ny,
+      stroke:'#2563eb', 'stroke-width': compact ? 2.6 : 3.2
+    }));
+    svg.appendChild(SVG.el('circle', {cx:cx, cy:cy, r: compact ? 4 : 5, fill:'#2563eb'}));
+
+    // 値（大きい図のみ表示、枠の内側ギリギリに載せる）
     if (opts.showValue !== false && !compact){
-      var label = (max>=2000 && value%1000===0) ? (value/1000)+'kg' : (value+'g');
-      svg.appendChild(SVG.text(cx, H-26, label, {'font-size':12, fill:'#374151', 'text-anchor':'middle'}));
+      var label = (max >= 2000 && value % 1000 === 0) ? (value/1000) + 'kg' : (value + 'g');
+      svg.appendChild(SVG.text(cx, H - padY - 12, label, {
+        'font-size': 13, fill:'#374151', 'text-anchor':'middle'
+      }));
     }
     return svg;
   }
 
-  /* ---------- 4択：小型メーター横並び ---------- */
+  /* ---------- 4択：小型メーター横並び（上下クリアランス確保） ---------- */
   function renderScalePick(conf){
     // conf: {max, step, correct, deltas?[], width?, height?}
-    var W = conf.width || 700, H = conf.height || 210;   // 少し広め&高めに
-    var gap = 16, cols = 4, cardW = (W - gap*(cols+1)) / cols, cardH = H - 34;
+    var W = conf.width || 720;
+    var H = conf.height || 230;              // 以前より高め
+    var gap = 16, cols = 4;
+    var cardW = (W - gap*(cols+1)) / cols;
+    var cardH = H - 40;                      // 下にラベル用の空間を確保
     var svg = SVG.svg(W, H);
+    svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+
     var choices = ['ア','イ','ウ','エ'];
 
-    // 値（正解＋典型ミス: ±2目盛, 0, −4目盛）
-    var deltaUnit = conf.step;
-    var deltas = conf.deltas || [-2*deltaUnit, +2*deltaUnit, 0, -4*deltaUnit];
+    // 正解±2目盛、0、−4目盛（2kg/50gなら ±100g/−200g になる）
+    var unit = conf.step;
+    var deltas = conf.deltas || [-2*unit, +2*unit, 0, -4*unit];
     var values = [
       conf.correct + deltas[0],
       conf.correct + deltas[1],
@@ -104,27 +140,28 @@
       var x = gap + i*(cardW+gap), y = 10;
 
       // 台
-      svg.appendChild(SVG.el('rect',{x:x, y:y, width:cardW, height:cardH, rx:12, ry:12, fill:'#fff'}));
+      svg.appendChild(SVG.el('rect', {
+        x:x, y:y, width:cardW, height:cardH, rx:12, ry:12, fill:'#fff'
+      }));
 
-      // 小メーター（外枠なし・中央寄せ）
-      var s = renderScale({
-        width:  cardW - 14,
-        height: cardH - 20,
+      // 小メーター（上寄せで、下のラベルと衝突しないように少し余裕）
+      var meter = renderScale({
+        width:  cardW - 16,
+        height: cardH - 26,
         max: conf.max,
         step: conf.step,
         value: values[i],
         compact: true,
         showValue: false
       });
-      s.setAttribute('width', cardW - 14);
-      s.setAttribute('height', cardH - 20);
-      s.setAttribute('x', x + 7);
-      s.setAttribute('y', y + 6);
-      svg.appendChild(s);
+      meter.setAttribute('x', x + 8);
+      meter.setAttribute('y', y + 6);
+      svg.appendChild(meter);
 
       // ラベル（下中央）
-      svg.appendChild(SVG.text(x + cardW/2, y + cardH - 8, choices[i],
-        {'font-size':14, fill:'#2563eb', 'text-anchor':'middle'}));
+      svg.appendChild(SVG.text(x + cardW/2, y + cardH - 6, choices[i], {
+        'font-size': 14, fill:'#2563eb', 'text-anchor':'middle'
+      }));
     }
     return svg;
   }
@@ -133,6 +170,7 @@
   function renderBalanceTilt(opts){
     var W = opts.width||460, H = opts.height||180;
     var svg = SVG.svg(W,H);
+    svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
 
     var cx=W/2, baseY=H-28;
 
