@@ -44,6 +44,13 @@ var state = {
   session: { items: [], idx: 0, selected: null, correctCount: 0, startedAt: 0 }
 };
 
+var domainLoadState = {
+  active: false,
+  domain: null,
+  element: null,
+  source: null
+};
+
 // === 正解位置の表示モード ===
 // 'as_is'  : 並べ替えなし（シート通り。今はこれで運用）
 // 'shuffle': 毎問ランダム並べ替え
@@ -102,7 +109,7 @@ function attachChoiceMapping(q) {
 
 
 // ===== 要素参照 =====
-var stemEl, assetEl, choicesEl, progressEl, skillLabelEl, submitBtn;
+var stemEl, assetEl, choicesEl, progressEl, skillLabelEl, submitBtn, startAnyBtn;
 
 // ===== Login処理（堅牢・段階ログ） =====
 function handleLoginClick() {
@@ -186,6 +193,89 @@ function loadDomains() {
     .getDomains();
 }
 
+function setDomainCardsBusy(isBusy, activeCard) {
+  var box = document.getElementById('domains');
+  if (!box) return;
+  if (isBusy) {
+    box.setAttribute('data-loading', 'true');
+  } else {
+    box.removeAttribute('data-loading');
+  }
+  var cards = box.querySelectorAll('.card');
+  for (var i = 0; i < cards.length; i++) {
+    var card = cards[i];
+    if (isBusy && card !== activeCard) {
+      card.setAttribute('aria-disabled', 'true');
+    } else {
+      card.removeAttribute('aria-disabled');
+    }
+  }
+}
+
+function beginDomainLoading(domain, element, source) {
+  if (domainLoadState.active) return false;
+  domainLoadState.active = true;
+  domainLoadState.domain = String(domain == null ? '' : domain);
+  domainLoadState.element = element || null;
+  domainLoadState.source = source || 'card';
+
+  if (element && element.classList) {
+    if (domainLoadState.source === 'card') {
+      element.classList.add('is-loading');
+      element.classList.add('is-selected');
+    }
+    element.setAttribute('aria-busy', 'true');
+  }
+
+  setDomainCardsBusy(true, domainLoadState.source === 'card' ? element : null);
+
+  if (startAnyBtn) {
+    startAnyBtn.disabled = true;
+    startAnyBtn.setAttribute('aria-disabled', 'true');
+    if (startAnyBtn !== element) {
+      startAnyBtn.classList.remove('is-loading');
+      startAnyBtn.removeAttribute('aria-busy');
+    }
+  }
+  if (element && element === startAnyBtn) {
+    startAnyBtn.classList.add('is-loading');
+    startAnyBtn.setAttribute('aria-busy', 'true');
+  }
+
+  return true;
+}
+
+function clearDomainLoading() {
+  if (!domainLoadState.active) return;
+  setDomainCardsBusy(false);
+
+  if (domainLoadState.element && domainLoadState.element.classList) {
+    domainLoadState.element.classList.remove('is-loading');
+    if (domainLoadState.source === 'card') {
+      domainLoadState.element.classList.remove('is-selected');
+    }
+    domainLoadState.element.removeAttribute('aria-busy');
+  }
+
+  if (startAnyBtn) {
+    startAnyBtn.disabled = false;
+    startAnyBtn.removeAttribute('aria-disabled');
+    startAnyBtn.classList.remove('is-loading');
+    startAnyBtn.removeAttribute('aria-busy');
+  }
+
+  domainLoadState.active = false;
+  domainLoadState.domain = null;
+  domainLoadState.element = null;
+  domainLoadState.source = null;
+}
+
+function handleDomainSelection(domain, element) {
+  var source = (element && element === startAnyBtn) ? 'any' : 'card';
+  if (!beginDomainLoading(domain, element, source)) return;
+  startQuiz(domain);
+}
+
 // ===== ドメイン描画 =====
 function renderDomains() {
   var box = document.getElementById('domains');
@@ -196,18 +286,42 @@ function renderDomains() {
     var d = list[i];
     var div = document.createElement('div');
     div.className = 'card';
+    div.setAttribute('data-domain', String(d == null ? '' : d));
     div.innerHTML = '<strong>' + escapeHTML(d) + '</strong>';
-    (function(domain){
-      div.onclick = function(){ startQuiz(domain); };
-    })(d);
+    (function(domain, el){
+      el.addEventListener('click', function(){
+        if (domainLoadState.active) return;
+        handleDomainSelection(domain, el);
+      });
+    })(d, div);
+
+    if (domainLoadState.active && domainLoadState.source === 'card' && domainLoadState.domain === String(d == null ? '' : d)) {
+      domainLoadState.element = div;
+      div.classList.add('is-loading');
+      div.classList.add('is-selected');
+      div.setAttribute('aria-busy', 'true');
+    }
     box.appendChild(div);
+  }
+
+  if (domainLoadState.active) {
+    setDomainCardsBusy(true, domainLoadState.source === 'card' ? domainLoadState.element : null);
+  } else {
+    setDomainCardsBusy(false);
   }
 }
 
 // ===== 出題〜採点 =====
 function startQuiz(domain) {
+  if (typeof google === 'undefined' || !google.script || !google.script.run) {
+    clearDomainLoading();
+    console.error('startQuiz: google.script.run is unavailable');
+    return;
+  }
+
   google.script.run
     .withSuccessHandler(function(items){
+      clearDomainLoading();
       state.session.items = items || [];
       (state.session.items || []).forEach(q => attachChoiceMapping(q));
       state.session.idx = 0;
@@ -216,6 +330,7 @@ function startQuiz(domain) {
       showScreen('quiz');
     })
     .withFailureHandler(function(err){
+      clearDomainLoading();
       console.error('getQuestions failed', err);
     })
     // ★ 認可に必要な user_id を必ず渡す
@@ -337,13 +452,18 @@ function initUI() {
 
   // クリック系
   var loginBtn  = document.getElementById('loginBtn');
-  var startAny  = document.getElementById('startAny');
+  startAnyBtn   = document.getElementById('startAny');
   var nextBtn   = document.getElementById('nextBtn');
   var finishBtn = document.getElementById('finishBtn');
   var homeBtn   = document.getElementById('homeBtn');
 
   if (loginBtn)  loginBtn.onclick  = handleLoginClick;
-  if (startAny)  startAny.onclick  = function(){ startQuiz(''); };
+  if (startAnyBtn) {
+    startAnyBtn.addEventListener('click', function(){
+      if (domainLoadState.active) return;
+      handleDomainSelection('', startAnyBtn);
+    });
+  }
   if (homeBtn)   homeBtn.onclick   = function(){ showScreen('home'); };
 
   if (choicesEl) {
