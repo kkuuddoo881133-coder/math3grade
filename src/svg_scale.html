@@ -47,12 +47,12 @@
     var max = opts.max, step = opts.step;
     var value = Math.max(0, Math.min(max, (opts.value || 0)));
 
-    // 目盛（-90°〜+90°）
+    // 目盛（左=0 → 上=中間 → 右=最大 の半円）
     var totalTicks = Math.round(max / step);
     for (var i=0; i<=totalTicks; i++){
       var g = i * step;
       var ratio = i / totalTicks;                // 0..1
-      var ang = (-Math.PI/2) + (Math.PI * ratio);
+      var ang = (-Math.PI) + (Math.PI * ratio);
 
       // 1本の長さ（強調間隔）
       var len = compact ? 7 : 8;
@@ -92,7 +92,7 @@
     }
 
     // 針（外側から少し内側に）
-    var angV = (-Math.PI/2) + Math.PI * (value / max);
+    var angV = (-Math.PI) + Math.PI * (value / max);
     var rNeedle = (compact ? outer - 2 : outer - 6);
     var nx = cx + Math.cos(angV) * rNeedle;
     var ny = cy + Math.sin(angV) * rNeedle;
