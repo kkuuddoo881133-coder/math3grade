@@ -1,0 +1,198 @@
+<!-- src/svg_triangle.html -->
+<script>
+(function (SVG) {
+  var C_LINE = '#374151', C_TEXT = '#111', C_HL = '#60a5fa', C_FILL = '#dbeafe';
+
+  function triPath(p){ return `M ${p.A.x} ${p.A.y} L ${p.B.x} ${p.B.y} L ${p.C.x} ${p.C.y} Z`; }
+  function drawTick(svg, a, b){ // 辺の中点に等辺マーク
+    var mx=(a.x+b.x)/2, my=(a.y+b.y)/2, dx=b.x-a.x, dy=b.y-a.y;
+    var len=Math.hypot(dx,dy); if(!len) return;
+    var nx=-dy/len, ny=dx/len; // 法線
+    svg.appendChild(SVG.el('line',{x1:mx-6*nx,y1:my-6*ny,x2:mx+6*nx,y2:my+6*ny,stroke:C_LINE}));
+  }
+  function label(svg, p, s, dy){ svg.appendChild(SVG.text(p.x, p.y+(dy||0), s, {'font-size':12, fill:C_TEXT})); }
+
+  /* ----（A）見分け：4択カードに三角形を並べる ---- */
+  function renderPick(cards){
+    var W=620,H=210,gap=16, cols=4, cardW=(W-gap*(cols+1))/cols, cardH=170;
+    var svg=SVG.svg(W,H);
+    var kana=['ア','イ','ウ','エ'];
+
+    cards.forEach(function(cfg,i){
+      var x=gap+i*(cardW+gap), y=14, pad=10;
+      svg.appendChild(SVG.el('rect',{x:x,y:y,width:cardW,height:cardH,rx:12,ry:12,fill:'#fff'}));
+
+      // 三角形の基準枠
+      var bx=x+pad, by=y+pad, bw=cardW-pad*2, bh=cardH-38;
+      // 3点（軽くランダム風だが固定配置）
+      var P={
+        A:{x:bx+bw*0.15, y:by+bh*0.80},
+        B:{x:bx+bw*0.85, y:by+bh*0.82},
+        C:{x:bx+bw*0.52, y:by+bh*0.22}
+      };
+      if (cfg.layout==='wideC'){ P.C.x=bx+bw*0.50; P.C.y=by+bh*0.18; }
+      if (cfg.layout==='leftC'){ P.C.x=bx+bw*0.30; P.C.y=by+bh*0.24; }
+      if (cfg.layout==='rightC'){P.C.x=bx+bw*0.72; P.C.y=by+bh*0.28; }
+
+      // 形の調整（等辺・正三角形・不等辺）
+      if (cfg.kind==='iso'){
+        // AB を底にして AC=BC になるよう C を底の垂直二等分近辺へ
+        var midX=(P.A.x+P.B.x)/2;
+        P.C.x=midX; P.C.y=by+bh*0.22;
+      } else if (cfg.kind==='equil'){
+        // 正三角形（ほぼ正確）：底辺を水平に、頂点は正三高
+        var baseL = (P.B.x-P.A.x);
+        var h = baseL*Math.sqrt(3)/2;
+        var midX=(P.A.x+P.B.x)/2;
+        P.C.x=midX; P.C.y=P.A.y - h;
+      } // scalene はそのまま
+
+      // 面＆輪郭
+      svg.appendChild(SVG.el('path',{d:triPath(P), fill:C_FILL, stroke:C_LINE}));
+
+      // 等辺マーク
+      if (cfg.kind==='iso'){
+        drawTick(svg,P.A,P.C); drawTick(svg,P.B,P.C);
+      } else if (cfg.kind==='equil'){
+        drawTick(svg,P.A,P.B); drawTick(svg,P.B,P.C); drawTick(svg,P.C,P.A);
+      }
+
+      // ラベル
+      svg.appendChild(SVG.text(x+cardW/2, y+cardH-8, kana[i],
+        {'font-size':14, fill:'#2563eb', 'text-anchor':'middle'}));
+    });
+    return svg;
+  }
+
+  /* ----（B）作図ヒント：底辺とコンパスの半径 ---- */
+  function renderConstructRadiusHint(){
+    var W=520,H=200, svg=SVG.svg(W,H);
+    var A={x:80,y:150}, I={x:340,y:150}; // 左= A, 右= イ（読みやすさ優先）
+    // 底辺
+    svg.appendChild(SVG.el('line',{x1:A.x,y1:A.y,x2:I.x,y2:I.y,stroke:C_LINE,'stroke-width':2}));
+    label(svg,A,'A',18); label(svg,I,'イ',18);
+    // 半径3cm の円（例示）：A中心, イ中心
+    var r=100; // 画面用スケール
+    svg.appendChild(SVG.el('circle',{cx:A.x,cy:A.y,r:r,fill:'none',stroke:'#9ca3af','stroke-dasharray':'6 6'}));
+    svg.appendChild(SVG.el('circle',{cx:I.x,cy:I.y,r:r,fill:'none',stroke:'#9ca3af','stroke-dasharray':'6 6'}));
+    // 交点（上側のみ強調：ウ）
+    var U={x:(A.x+I.x)/2, y: A.y - Math.sqrt(r*r - ((I.x-A.x)/2)*((I.x-A.x)/2)) };
+    svg.appendChild(SVG.el('circle',{cx:U.x,cy:U.y,r:4,fill:'#ef4444'}));
+    label(svg,U,'ウ',-14);
+    // 注記
+    svg.appendChild(SVG.text(W-10,20,'Aとイを中心に同じ半径で円をかく',{'font-size':12,fill:C_TEXT,'text-anchor':'end'}));
+    return svg;
+  }
+
+  /* ----（C）交点の名前：ウ を指す ---- */
+  function renderConstructIntersections(){
+    // 上の図の簡略版（交点にフォーカス）
+    return renderConstructRadiusHint();
+  }
+
+  /* ----（D）最後に結ぶ辺（破線の候補を示すだけ） ---- */
+  function renderConstructFinalEdges(){
+    var W=520,H=200, svg=SVG.svg(W,H);
+    var A={x:80,y:150}, I={x:340,y:150}, U={x:210,y:60};
+    // 点
+    svg.appendChild(SVG.el('circle',{cx:A.x,cy:A.y,r:4,fill:'#111'}));
+    svg.appendChild(SVG.el('circle',{cx:I.x,cy:I.y,r:4,fill:'#111'}));
+    svg.appendChild(SVG.el('circle',{cx:U.x,cy:U.y,r:4,fill:'#ef4444'}));
+    label(svg,A,'A',18); label(svg,I,'イ',18); label(svg,U,'ウ',-14);
+    // 底辺
+    svg.appendChild(SVG.el('line',{x1:A.x,y1:A.y,x2:I.x,y2:I.y,stroke:C_LINE}));
+    // 候補の辺（破線表示）
+    svg.appendChild(SVG.el('line',{x1:A.x,y1:A.y,x2:U.x,y2:U.y,stroke:C_HL,'stroke-dasharray':'6 4'}));
+    svg.appendChild(SVG.el('line',{x1:I.x,y1:I.y,x2:U.x,y2:U.y,stroke:C_HL,'stroke-dasharray':'6 4'}));
+    // ヒント
+    svg.appendChild(SVG.text(260, H-18, '最後は A-ウ と イ-ウ を結ぶ', {'font-size':12,fill:C_TEXT,'text-anchor':'middle'}));
+    return svg;
+  }
+
+  /* ----（E）円を使ったきまり ---- */
+  function renderCircleIsosceles(){
+    var W=320,H=220, svg=SVG.svg(W,H);
+    var O={x:160,y:110}, R=80;
+    var angA=-40*Math.PI/180, angB=220*Math.PI/180; // 適度に離す
+    var A={x:O.x+R*Math.cos(angA), y:O.y+R*Math.sin(angA)};
+    var B={x:O.x+R*Math.cos(angB), y:O.y+R*Math.sin(angB)};
+
+    // 円と半径
+    svg.appendChild(SVG.el('circle',{cx:O.x,cy:O.y,r:R,fill:'none',stroke:C_LINE}));
+    svg.appendChild(SVG.el('line',{x1:O.x,y1:O.y,x2:A.x,y2:A.y,stroke:C_HL}));
+    svg.appendChild(SVG.el('line',{x1:O.x,y1:O.y,x2:B.x,y2:B.y,stroke:C_HL}));
+
+    // 三角形 AOB
+    svg.appendChild(SVG.el('path',{d:`M ${A.x} ${A.y} L ${O.x} ${O.y} L ${B.x} ${B.y} Z`, fill:C_FILL, stroke:C_LINE}));
+    // 等辺マーク OA = OB
+    drawTick(svg,O,A); drawTick(svg,O,B);
+
+    // ラベル
+    svg.appendChild(SVG.el('circle',{cx:O.x,cy:O.y,r:3,fill:'#111'}));
+    svg.appendChild(SVG.el('circle',{cx:A.x,cy:A.y,r:3,fill:'#111'}));
+    svg.appendChild(SVG.el('circle',{cx:B.x,cy:B.y,r:3,fill:'#111'}));
+    label(svg,O,'O',-12); label(svg,A,'A',-12); label(svg,B,'B',-12);
+    return svg;
+  }
+
+  function renderCircleEquilateral(){
+    var W=320,H=220, svg=SVG.svg(W,H);
+    var O={x:160,y:110}, R=80;
+    // 120°等間隔
+    var ang=[-90, 30, 150].map(a=>a*Math.PI/180);
+    var P=ang.map(t=>({x:O.x+R*Math.cos(t), y:O.y+R*Math.sin(t)}));
+    var A=P[0], B=P[1], C=P[2];
+
+    // 円と半径
+    svg.appendChild(SVG.el('circle',{cx:O.x,cy:O.y,r:R,fill:'none',stroke:C_LINE}));
+    [A,B,C].forEach(p=> svg.appendChild(SVG.el('line',{x1:O.x,y1:O.y,x2:p.x,y2:p.y,stroke:C_HL})));
+
+    // 正三角形
+    svg.appendChild(SVG.el('path',{d:`M ${A.x} ${A.y} L ${B.x} ${B.y} L ${C.x} ${C.y} Z`, fill:C_FILL, stroke:C_LINE}));
+    // 3辺等マーク
+    drawTick(svg,A,B); drawTick(svg,B,C); drawTick(svg,C,A);
+
+    // ラベル
+    svg.appendChild(SVG.el('circle',{cx:O.x,cy:O.y,r:3,fill:'#111'}));
+    label(svg,O,'O',-12); label(svg,A,'A',-12); label(svg,B,'B',-12); label(svg,C,'C',-12);
+    return svg;
+  }
+
+  /* ---- レジストリ ---- */
+  SVG.register(function(spec){
+    if (spec==='tri_pick_iso' || spec==='svg:tri_pick_iso'){
+      return renderPick([
+        {kind:'scalene', layout:'leftC'},   // ア（誤）
+        {kind:'iso',     layout:'wideC'},   // イ（正）
+        {kind:'equil',   layout:'rightC'},  // ウ（誤：正三）
+        {kind:'scalene', layout:'rightC'}   // エ（誤）
+      ]);
+    }
+    if (spec==='tri_pick_equil' || spec==='svg:tri_pick_equil'){
+      return renderPick([
+        {kind:'scalene', layout:'leftC'},   // ア（誤）
+        {kind:'iso',     layout:'wideC'},   // イ（誤）
+        {kind:'equil',   layout:'rightC'},  // ウ（正）
+        {kind:'scalene', layout:'rightC'}   // エ（誤）
+      ]);
+    }
+    if (spec==='tri_construct_radius_hint' || spec==='svg:tri_construct_radius_hint'){
+      return renderConstructRadiusHint();
+    }
+    if (spec==='tri_construct_intersections' || spec==='svg:tri_construct_intersections'){
+      return renderConstructIntersections();
+    }
+    if (spec==='tri_construct_final_edges' || spec==='svg:tri_construct_final_edges'){
+      return renderConstructFinalEdges();
+    }
+    if (spec==='tri_circle_isosceles' || spec==='svg:tri_circle_isosceles'){
+      return renderCircleIsosceles();
+    }
+    if (spec==='tri_circle_equilateral' || spec==='svg:tri_circle_equilateral'){
+      return renderCircleEquilateral();
+    }
+    return null;
+  });
+
+})(window.SVG);
+</script>
