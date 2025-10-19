@@ -37,11 +37,24 @@ function safeValue(el){ return (el && typeof el.value === 'string') ? el.value.t
 function safeMsg(err){ return (err && err.message) ? err.message : String(err); }
 function safeGet(arr, i){ return (arr && arr.length > i && arr[i] != null) ? arr[i] : ''; }
 
+function buildResultOptionHTML(letter, rawText, extraClasses) {
+  var classes = ['result-option'];
+  if (Array.isArray(extraClasses)) {
+    for (var i = 0; i < extraClasses.length; i++) {
+      if (extraClasses[i]) classes.push(extraClasses[i]);
+    }
+  }
+  return '<div class="' + classes.join(' ') + '">' +
+           '<div class="result-option-label">' + escapeHTML(letter || '') + '</div>' +
+           '<div class="result-option-text">' + formatUnitsHTML(rawText || '') + '</div>' +
+         '</div>';
+}
+
 // ===== 状態 =====
 var state = {
   user_id: null, nickname: null, pin: null,
   domains: [],
-  session: { items: [], idx: 0, selected: null, correctCount: 0, startedAt: 0 }
+  session: { items: [], idx: 0, selected: null, correctCount: 0, startedAt: 0, lastResult: null }
 };
 
 var domainLoadState = {
@@ -110,6 +123,10 @@ function attachChoiceMapping(q) {
 
 // ===== 要素参照 =====
 var stemEl, assetEl, choicesEl, progressEl, skillLabelEl, submitBtn, startAnyBtn;
+var resultTextEl, reasonsEl, resultDetailEl, resultStemEl,
+    resultLearnerCardEl, resultLearnerChoiceEl,
+    resultCorrectCardEl, resultCorrectChoiceEl,
+    resultOtherCardEl, resultOtherChoicesEl;
 
 // ===== Login処理（堅牢・段階ログ） =====
 function handleLoginClick() {
@@ -447,6 +464,47 @@ function initUI() {
   skillLabelEl = document.getElementById('skillLabel');
   submitBtn    = document.getElementById('submitBtn');
 
+  var resultScreen = document.getElementById('screen-result');
+  if (resultScreen && !resultScreen.querySelector('#resultDetail')) {
+    resultScreen.innerHTML =
+      '<h2>けっか</h2>' +
+      '<p id="resultText" class="result-headline"></p>' +
+      '<div id="resultDetail" class="result-detail">' +
+        '<section class="result-card result-card-stem">' +
+          '<h3>もんだい</h3>' +
+          '<div id="resultStem" class="result-stem"></div>' +
+        '</section>' +
+        '<section id="resultLearnerCard" class="result-card result-card-learner">' +
+          '<h3>えらんだ こたえ</h3>' +
+          '<div id="resultLearnerChoice" class="result-choice-list"></div>' +
+        '</section>' +
+        '<section id="resultCorrectCard" class="result-card result-card-correct">' +
+          '<h3>せいかい</h3>' +
+          '<div id="resultCorrectChoice" class="result-choice-list"></div>' +
+        '</section>' +
+        '<section id="resultOtherCard" class="result-card result-card-others">' +
+          '<h3>ほかの せんたくし</h3>' +
+          '<div id="resultOtherChoices" class="result-choice-list"></div>' +
+        '</section>' +
+      '</div>' +
+      '<div id="reasons" class="result-reason"></div>' +
+      '<div class="actions">' +
+        '<button id="nextBtn" type="button">つぎの もんだい</button>' +
+        '<button id="finishBtn" type="button">きょうは おしまい</button>' +
+      '</div>';
+  }
+
+  resultTextEl          = document.getElementById('resultText');
+  reasonsEl             = document.getElementById('reasons');
+  resultDetailEl        = document.getElementById('resultDetail');
+  resultStemEl          = document.getElementById('resultStem');
+  resultLearnerCardEl   = document.getElementById('resultLearnerCard');
+  resultLearnerChoiceEl = document.getElementById('resultLearnerChoice');
+  resultCorrectCardEl   = document.getElementById('resultCorrectCard');
+  resultCorrectChoiceEl = document.getElementById('resultCorrectChoice');
+  resultOtherCardEl     = document.getElementById('resultOtherCard');
+  resultOtherChoicesEl  = document.getElementById('resultOtherChoices');
+
   // 画面
   showScreen('login');
 
@@ -513,17 +571,94 @@ function initUI() {
         if (!q) { return; }
 
         var elapsed = Date.now() - state.session.startedAt;
-        var dispIdx = ['A','B','C','D'].indexOf(state.session.selected);
+        var displayLetters = ['A','B','C','D'];
+        var dispIdx = displayLetters.indexOf(state.session.selected);
         var chosenOriginal = (q.displayToOriginal && dispIdx >= 0) ? q.displayToOriginal[dispIdx] : state.session.selected;
         var correct = (chosenOriginal === q.correct);
+        var correctDisplayIdx = (q.originalToDisplay && q.originalToDisplay[q.correct] != null)
+          ? q.originalToDisplay[q.correct]
+          : displayLetters.indexOf(q.correct);
+        var correctDisplay = (correctDisplayIdx >= 0 && correctDisplayIdx < displayLetters.length)
+          ? displayLetters[correctDisplayIdx]
+          : '';
 
-        document.getElementById('resultText').textContent = correct ? 'せいかい！' : 'ざんねん…';
+        var choices = [];
+        for (var i = 0; i < displayLetters.length; i++) {
+          choices.push({
+            display: displayLetters[i],
+            original: q && q.displayToOriginal ? safeGet(q.displayToOriginal, i) : displayLetters[i],
+            text: safeGet(q && q.shuffledChoices, i) || ''
+          });
+        }
+        var learnerChoice = null;
+        for (var c = 0; c < choices.length; c++) {
+          if (choices[c].display === state.session.selected) { learnerChoice = choices[c]; break; }
+        }
+        var correctChoice = (correctDisplayIdx >= 0 && correctDisplayIdx < choices.length) ? choices[correctDisplayIdx] : null;
+
+        state.session.lastResult = {
+          question: q,
+          chosenDisplay: state.session.selected,
+          chosenOriginal: chosenOriginal,
+          correctDisplay: correctDisplay,
+          correct: correct,
+          choices: choices
+        };
+
+        if (resultTextEl) resultTextEl.textContent = correct ? 'せいかい！' : 'ざんねん…';
 
         var reasons = (q.reasons || {});
         var reason = reasons[chosenOriginal] || '';
         var why = correct ? 'よくできました！'
                           : (reason ? ('まちがえの理由：' + reason) : 'もういちど かんがえてみよう');
-        document.getElementById('reasons').textContent = why;
+        if (reasonsEl) reasonsEl.textContent = why;
+
+        if (resultDetailEl) resultDetailEl.setAttribute('data-correct', correct ? 'true' : 'false');
+        if (resultStemEl) resultStemEl.innerHTML = formatUnitsHTML((q && q.stem) ? q.stem : '');
+
+        if (resultLearnerCardEl) {
+          resultLearnerCardEl.classList.remove('is-correct', 'is-incorrect');
+          if (learnerChoice) {
+            resultLearnerCardEl.classList.add(learnerChoice.display === correctDisplay ? 'is-correct' : 'is-incorrect');
+          }
+        }
+        if (resultCorrectCardEl) {
+          resultCorrectCardEl.classList.toggle('is-correct', !!correctChoice);
+        }
+
+        if (resultLearnerChoiceEl) {
+          if (learnerChoice) {
+            var learnerClasses = ['is-selected'];
+            learnerClasses.push(learnerChoice.display === correctDisplay ? 'is-correct' : 'is-incorrect');
+            resultLearnerChoiceEl.innerHTML = buildResultOptionHTML(learnerChoice.display, learnerChoice.text, learnerClasses);
+          } else {
+            resultLearnerChoiceEl.innerHTML = '<div class="result-option result-option-empty">こたえが えらばれていません</div>';
+          }
+        }
+
+        if (resultCorrectChoiceEl) {
+          if (correctChoice) {
+            resultCorrectChoiceEl.innerHTML = buildResultOptionHTML(correctChoice.display, correctChoice.text, ['is-correct']);
+          } else {
+            resultCorrectChoiceEl.innerHTML = '<div class="result-option result-option-empty">せいかいが みつかりません</div>';
+          }
+        }
+
+        if (resultOtherChoicesEl) {
+          var otherHTML = [];
+          for (var o = 0; o < choices.length; o++) {
+            if (choices[o].display === correctDisplay) continue;
+            if (choices[o].display === state.session.selected) continue;
+            otherHTML.push(buildResultOptionHTML(choices[o].display, choices[o].text));
+          }
+          if (otherHTML.length > 0) {
+            resultOtherChoicesEl.innerHTML = otherHTML.join('');
+            if (resultOtherCardEl) resultOtherCardEl.classList.remove('is-empty');
+          } else {
+            resultOtherChoicesEl.innerHTML = '<div class="result-option result-option-empty">ほかの せんたくし は ありません</div>';
+            if (resultOtherCardEl) resultOtherCardEl.classList.add('is-empty');
+          }
+        }
 
         showScreen('result');
 
