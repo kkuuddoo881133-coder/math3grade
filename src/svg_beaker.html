@@ -1,16 +1,15 @@
+<!-- src/svg_beaker.html -->
 <script>
 (function (SVG) {
-
   function isMultiple(x, base, eps){ return Math.abs((x/base) - Math.round(x/base)) < (eps||1e-9); }
 
   function renderBeaker(opts){
     var W = opts.width  || 220;
     var H = opts.height || 260;
-    var pad = { l: 52, r: 90, t: 18, b: 36 };  // ←余白はそのまま（切れ防止）
+    var pad = { l: 52, r: 90, t: 18, b: 36 };
     var svg = SVG.svg(W, H);
 
     var cap = (opts.capacityL != null) ? opts.capacityL : 1.0;
-    var minorEvery = 0.1;
 
     var x = pad.l, y = pad.t;
     var tankW = W - pad.l - pad.r, tankH = H - pad.t - pad.b;
@@ -21,122 +20,127 @@
       fill:'#ffffff', stroke:'#374151', 'stroke-width':1.8
     }));
 
-    // ---- 目盛（左）ここを改良 ----
+    var ticksMode = opts.ticks || 'dec';
     var ticksX = x - 12, labelX = x - 14;
-    for (var v=0; v<=cap+1e-9; v+=minorEvery){
-      var t = 1 - (v/cap);
-      var yy = y + tankH * t;
 
-      // 0.5Lごとは必ず“長い目盛り”
-      var len = 7;                             // デフォルト（0.1L）
-      if (isMultiple(v, 0.5)) len = 16;        // ★ 0.0,0.5,1.0,1.5… を長線に統一
+    if (ticksMode === 'frac' && opts.parts && opts.parts > 0){
+      // ===== 分数モード：等分目盛（端点ラベルのみ）=====
+      var parts = opts.parts;
 
-      svg.appendChild(SVG.el('line', {x1:ticksX, y1:yy, x2:ticksX+len, y2:yy, stroke:'#111'}));
+      for (var i=0; i<=parts; i++){
+        var t = i/parts;
+        var yy = y + tankH * (1 - t);
+        // 左外側の短線（すべて同じ長さ）
+        svg.appendChild(SVG.el('line', {x1:ticksX, y1:yy, x2:ticksX+14, y2:yy, stroke:'#111'}));
+        // 容器内の薄い補助線（端点は除く）
+        if (i>0 && i<parts){
+          svg.appendChild(SVG.el('line', {
+            x1:x+2, y1:yy, x2:x+tankW-2, y2:yy, stroke:'#e5e7eb'
+          }));
+        }
+      }
+      // 端点ラベルのみ（0.0L / 1.0L）← 0.5 は出さない
+      var yy0 = y + tankH, yy1 = y;
+      svg.appendChild(SVG.text(labelX, yy0+4, '0.0L',
+        {'font-size':12, fill:'#111', 'text-anchor':'end'}));
+      svg.appendChild(SVG.text(labelX, yy1+4, cap.toFixed(1)+'L',
+        {'font-size':12, fill:'#111', 'text-anchor':'end'}));
 
-      // ラベルも 0.5L ごとに必ず表示（1.0 も出る）
-      if (isMultiple(v, 0.5)){
-        var txt = v.toFixed(1) + 'L';
-        svg.appendChild(SVG.text(labelX, yy+4, txt, {
-          'font-size': 12, fill:'#111', 'text-anchor':'end'
-        }));
+      // 右上注記は「1目もり＝1/parts L」に置き換え
+      var markText = '1目もり＝1/' + parts + 'L';
+      svg.appendChild(SVG.text(x + tankW + 6, y + 12, markText,
+        {'font-size':12, fill:'#374151', 'text-anchor':'start'}));
+
+    } else {
+      // ===== 小数モード：0.1L刻み、0.5ごとに長線＋ラベル =====
+      for (var v=0; v<=cap+1e-9; v+=0.1){
+        v = Math.round(v*10)/10;
+        var yy = y + tankH * (1 - v/cap);
+        var len = isMultiple(v,0.5) ? 16 : 7;
+        svg.appendChild(SVG.el('line', {x1:ticksX, y1:yy, x2:ticksX+len, y2:yy, stroke:'#111'}));
+        if (isMultiple(v,0.5)){
+          svg.appendChild(SVG.text(labelX, yy+4, v.toFixed(1)+'L',
+            {'font-size':12, fill:'#111', 'text-anchor':'end'}));
+        }
+      }
+      // オプション注記（小数モードは既存通り活用）
+      if (opts.note){
+        svg.appendChild(SVG.text(x + tankW + 6, y + 12, opts.note,
+          {'font-size':12, fill:'#374151', 'text-anchor':'start'}));
       }
     }
-    // ---- ここまで改良 ----
 
-    // 水
+    // 中身（水）
     if (opts.fillL != null){
-      var h = tankH * (opts.fillL / cap);
+      var h  = tankH * (opts.fillL / cap);
       var fy = y + tankH - h;
-      svg.appendChild(SVG.el('rect', {
-        x:x+2, y:fy, width:tankW-4, height:h, rx:10, ry:10, fill:'#a7d1ff'
-      }));
-      svg.appendChild(SVG.el('line', {
-        x1:x, y1:fy, x2:x+tankW, y2:fy, stroke:'#2563eb', 'stroke-width':2
-      }));
+      svg.appendChild(SVG.el('rect', {x:x+2, y:fy, width:tankW-4, height:h, rx:10, ry:10, fill:'#a7d1ff'}));
+      svg.appendChild(SVG.el('line', {x1:x, y1:fy, x2:x+tankW, y2:fy, stroke:'#2563eb', 'stroke-width':2}));
     }
 
-    // 目標線（必要なら）
-    if (opts.targets && opts.targets.length){
+    // 目標線（任意）
+    if (opts.targets){
       opts.targets.forEach(function(tg){
-        var v = tg.valueL; if (v<0 || v>cap) return;
-        var yy = y + tankH * (1 - v/cap);
+        if (tg.valueL<0 || tg.valueL>cap) return;
+        var yy = y + tankH * (1 - tg.valueL/cap);
         svg.appendChild(SVG.el('line', {
           x1:x+3, y1:yy, x2:x+tankW-3, y2:yy,
           stroke:'#2563eb','stroke-width':2,'stroke-dasharray':'4 4'
         }));
         if (tg.label){
-          svg.appendChild(SVG.text(x+tankW+14, yy+4, tg.label, {
-            'font-size': 13, fill:'#2563eb', 'text-anchor':'start'
-          }));
+          svg.appendChild(SVG.text(x+tankW+14, yy+4, tg.label,
+            {'font-size':13, fill:'#2563eb', 'text-anchor':'start'}));
         }
       });
-    }
-
-    if (opts.note){
-      svg.appendChild(SVG.text(x + tankW + 6, y + 12, opts.note, {
-        'font-size': 12, fill:'#374151', 'text-anchor':'start'
-      }));
     }
     return svg;
   }
 
-  // 以降（パーサ / register）はそのまま流用でOK
-  function parseBeakerSpec(spec){
+  // --- 0.1L 刻み読み取り（末尾の数字で量を指定：0..15）---
+  function parseDecSpec(spec){
     var m = spec.match(/^(:?svg:)?beaker_dec_read_(\d{1,2})$/);
-    if (m){
-      var n = parseInt(m[2],10);
-      var fill = n/10;
-      var cap  = (fill <= 1.0) ? 1.0 : 1.5;
-      return { kind:'read', cap:cap, fill:fill };
-    }
-    if (/^(:?svg:)?beaker_dec_shade_0_7$/.test(spec)){ return { kind:'shade07' }; }
-    return null;
+    if (!m) return null;
+    var n = parseInt(m[2],10);
+    var fill = n/10;
+    var cap  = (fill <= 1.0) ? 1.0 : 1.5;
+    return {cap, fill};
   }
 
   SVG.register(function(spec){
-    if (spec==='beaker_dec_read_5' || spec==='svg:beaker_dec_read_5'){
-      return renderBeaker({capacityL:1.0, fillL:0.5, note:'1目もり=0.1L'});
-    }
-    if (spec==='beaker_dec_read_13' || spec==='svg:beaker_dec_read_13'){
-      return renderBeaker({capacityL:1.5, fillL:1.3, note:'1目もり=0.1L'});
-    }
-    if (spec==='beaker_dec_shade_0_7' || spec==='svg:beaker_dec_shade_0_7'){
+    // 既存互換
+    if (spec==='beaker_dec_read_5'  || spec==='svg:beaker_dec_read_5')
+      return renderBeaker({capacityL:1.0, fillL:0.5, ticks:'dec', note:'1目もり=0.1L'});
+    if (spec==='beaker_dec_read_13' || spec==='svg:beaker_dec_read_13')
+      return renderBeaker({capacityL:1.5, fillL:1.3, ticks:'dec', note:'1目もり=0.1L'});
+    if (spec==='beaker_dec_shade_0_7' || spec==='svg:beaker_dec_shade_0_7')
+      return renderBeaker({capacityL:1.0, ticks:'dec', targets:[
+        {valueL:0.5,label:'ア'},{valueL:0.6,label:'イ'},{valueL:0.8,label:'ウ'},{valueL:0.7,label:'エ'}],
+        note:'0.1Lごと'});
+
+    var d = parseDecSpec(spec);
+    if (d) return renderBeaker({capacityL:d.cap, fillL:d.fill, ticks:'dec', note:'1目もり=0.1L'});
+
+    // --- 分数（等分） ---
+    var mF = spec.match(/^(:?svg:)?beaker_frac-(\d+)-(\d+)$/);
+    if (mF){
+      var parts = +mF[2], fill = +mF[3];
       return renderBeaker({
         capacityL:1.0,
-        targets:[
-          {valueL:0.5, label:'ア'},
-          {valueL:0.6, label:'イ'},
-          {valueL:0.8, label:'ウ'},
-          {valueL:0.7, label:'エ'}
-        ],
-        note:'0.1Lごと'
+        fillL: (fill/parts),
+        ticks:'frac',
+        parts: parts
       });
     }
-
-    var p = parseBeakerSpec(spec);
-    if (p){
-      if (p.kind === 'read'){
-        return renderBeaker({
-          capacityL: p.cap,
-          fillL:     p.fill,
-          note:      '1目もり=0.1L'
-        });
-      }
-      if (p.kind === 'shade07'){
-        return renderBeaker({
-          capacityL:1.0,
-          targets:[
-            {valueL:0.5, label:'ア'},
-            {valueL:0.6, label:'イ'},
-            {valueL:0.8, label:'ウ'},
-            {valueL:0.7, label:'エ'}
-          ],
-          note:'0.1Lごと'
-        });
-      }
+    var mD = spec.match(/^(:?svg:)?beaker_div-(\d+)$/);
+    if (mD){
+      var p = +mD[2];
+      return renderBeaker({
+        capacityL:1.0,
+        ticks:'frac',
+        parts:p
+      });
     }
     return null;
   });
-
 })(window.SVG);
 </script>
