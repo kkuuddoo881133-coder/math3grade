@@ -5,7 +5,21 @@ h1, h2 { margin: 0 0 12px; }
 .screen { display: none; }
 .screen.active { display: block; }
 .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 12px 0; }
-.card { background: #fff; border-radius: 14px; padding: 12px; box-shadow: 0 4px 14px rgba(0,0,0,.06); border: 1px solid #eee; }
+.cards[data-loading="true"] { pointer-events: none; }
+.cards[data-loading="true"] .card { cursor: default; }
+.card { background: #fff; border-radius: 14px; padding: 12px; box-shadow: 0 4px 14px rgba(0,0,0,.06); border: 1px solid #eee; position: relative; transition: box-shadow .2s, border-color .2s, background-color .2s; }
+.card.is-selected { border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59,130,246,.35); }
+.card.is-loading { background: #eef2ff; color: #666; }
+.card.is-loading::before { content: ""; position: absolute; inset: 0; border-radius: inherit; background: rgba(255,255,255,.6); }
+.card.is-loading::after { content: ""; position: absolute; top: 50%; left: 50%; width: 28px; height: 28px; margin: -14px 0 0 -14px; border-radius: 50%; border: 3px solid rgba(59,130,246,.3); border-top-color: #3b82f6; animation: card-spin .8s linear infinite; }
+.card.is-loading::before,
+.card.is-loading::after,
+#startAny.is-loading::before,
+#startAny.is-loading::after { pointer-events: none; }
+@keyframes card-spin { to { transform: rotate(360deg); } }
+#startAny.is-loading { position: relative; color: #666; }
+#startAny.is-loading::after { content: ""; position: absolute; top: 50%; left: 50%; width: 24px; height: 24px; margin: -12px 0 0 -12px; border-radius: 50%; border: 3px solid rgba(59,130,246,.25); border-top-color: #3b82f6; animation: card-spin .8s linear infinite; }
+#startAny.is-loading::before { content: ""; position: absolute; inset: 0; border-radius: inherit; background: rgba(255,255,255,.55); }
 button { padding: 12px 16px; border-radius: 12px; border: 1px solid #ddd; background: #fff; cursor: pointer; }
 button.primary { background: #3b82f6; color: #fff; border-color: #3b82f6; }
 button:disabled, .btn-disabled { opacity: .5; cursor: not-allowed; }
