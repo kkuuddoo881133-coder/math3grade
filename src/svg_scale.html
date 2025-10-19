@@ -43,6 +43,19 @@
 
     // 半径（下限も少し確保して見た目を安定）
     var R = Math.max(28, Math.min(RlimitRight, RlimitTop));
+    var outerRadius = R - tickOffset;
+
+    if (compact) {
+      var topEdge = padY + safe;
+      var bottomEdge = H - padY - safe;
+      var verticalSpan = Math.max(0, bottomEdge - topEdge);
+      outerRadius = Math.min(outerRadius, verticalSpan);
+      outerRadius = Math.max(20, outerRadius);
+      R = outerRadius + tickOffset;
+      var extra = Math.max(0, verticalSpan - outerRadius);
+      var lift = Math.min(extra, 12);
+      cy = topEdge + outerRadius + lift;
+    }
 
     var max = opts.max, step = opts.step;
     var value = Math.max(0, Math.min(max, (opts.value || 0)));
@@ -61,7 +74,7 @@
       }
 
       // 外側/内側の点（外側が枠内に収まるよう R を決定済）
-      var outer = R - tickOffset;
+      var outer = outerRadius;
       var inner = outer - len;
 
       var x1 = cx + Math.cos(ang) * outer;
@@ -93,7 +106,7 @@
 
     // 針（外側から少し内側に）
     var angV = (-Math.PI) + Math.PI * (value / max);
-    var rNeedle = (compact ? outer - 2 : outer - 6);
+    var rNeedle = (compact ? outerRadius - 2 : outerRadius - 6);
     var nx = cx + Math.cos(angV) * rNeedle;
     var ny = cy + Math.sin(angV) * rNeedle;
 
