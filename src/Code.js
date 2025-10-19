@@ -385,18 +385,6 @@ function hasRecentDuplicate_(sh, map, user_id, qid, chosen, ts, windowMs, scanRo
 }
 
 
-// ===== 診断系（任意） =====
-function ping(payload) {
-  return { ok: true, version: APP_VERSION, now: new Date(), payload: payload || null };
-}
-function pingDiag() { return { ok: true, marker: 'pingDiag', ts: new Date().toISOString(), rnd: Math.random() }; }
-function healthCheckDiag() { return { ok: true, marker: 'healthCheckDiag', ts: new Date().toISOString(), rnd: Math.random() }; }
-function returnNumber() { return 42; }
-function returnString() { return 'pong:' + new Date().toISOString(); }
-function returnObject() {
-  return { marker: 'returnObject', now: new Date().toISOString(), ver: (typeof APP_VERSION !== 'undefined') ? APP_VERSION : 'unknown' };
-}
-
 function getPixelOverlayToday(user_id) {
   mustAllow_(user_id);
   const tz = 'Asia/Tokyo';
