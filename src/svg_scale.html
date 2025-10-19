@@ -1,0 +1,172 @@
+<script>
+(function (SVG) {
+  function parseCapacity(token) {
+    if (!token) return 1000;
+    token = String(token).trim();
+    var lower = token.toLowerCase();
+    if (lower.endsWith('kg')) {
+      var n = parseFloat(lower.slice(0, -2));
+      return isFinite(n) ? n * 1000 : 1000;
+    }
+    if (lower.endsWith('k')) {
+      var k = parseFloat(lower.slice(0, -1));
+      return isFinite(k) ? k * 1000 : 1000;
+    }
+    if (lower.endsWith('g')) {
+      var g = parseFloat(lower.slice(0, -1));
+      return isFinite(g) ? g : 1000;
+    }
+    var num = parseFloat(lower);
+    if (isFinite(num)) {
+      return num;
+    }
+    return 1000;
+  }
+
+  function roundToStep(value, step) {
+    if (!step) return value;
+    return Math.round(value / step) * step;
+  }
+
+  function polar(cx, cy, radius, deg) {
+    var rad = (Math.PI / 180) * deg;
+    return {
+      x: cx + radius * Math.cos(rad),
+      y: cy + radius * Math.sin(rad)
+    };
+  }
+
+  function formatWeight(value) {
+    if (!isFinite(value)) return '';
+    if (value >= 1000) {
+      var kg = value / 1000;
+      return (Math.round(kg * 10) / 10).toString().replace(/\.0$/, '') + 'kg';
+    }
+    return value + 'g';
+  }
+
+  function renderScale(opts) {
+    var maxValue = opts.maxValue || 1000;
+    var step = opts.step || Math.max(10, Math.round(maxValue / 50));
+    var needleValue = Math.max(0, Math.min(maxValue, opts.needleValue != null ? opts.needleValue : 0));
+
+    var W = 320, H = 320;
+    var cx = W / 2;
+    var cy = H / 2 + 12;
+    var R_OUT = 130;
+    var R_INNER = 116;
+    var svg = SVG.svg(W, H);
+
+    svg.appendChild(SVG.circle(cx, cy, R_OUT + 10, { fill: '#f8fafc', stroke: '#334155', 'stroke-width': 3 }));
+    svg.appendChild(SVG.circle(cx, cy, R_INNER, { fill: '#fff', stroke: '#475569', 'stroke-width': 2 }));
+
+    var startDeg = -120;
+    var endDeg = 120;
+    var spanDeg = endDeg - startDeg;
+
+    var majorInterval = step;
+    if (maxValue > 0) {
+      var approx = maxValue / 10;
+      majorInterval = Math.max(step, roundToStep(approx, step));
+    }
+
+    for (var value = 0; value <= maxValue + 0.001; value += step) {
+      var ratio = value / maxValue;
+      if (!isFinite(ratio)) ratio = 0;
+      var deg = startDeg + ratio * spanDeg;
+      var outer = polar(cx, cy, R_INNER, deg);
+      var len = (value % majorInterval === 0) ? 16 : 9;
+      var inner = polar(cx, cy, R_INNER - len, deg);
+      svg.appendChild(SVG.line(inner.x, inner.y, outer.x, outer.y, { stroke: '#1f2937', 'stroke-width': (value % majorInterval === 0) ? 2 : 1 }));
+
+      if (value % majorInterval === 0) {
+        var labelPos = polar(cx, cy, R_INNER - 32, deg);
+        svg.appendChild(SVG.text(labelPos.x, labelPos.y, formatWeight(value), {
+          'font-size': 14,
+          fill: '#1f2937',
+          'text-anchor': 'middle',
+          'dominant-baseline': 'middle'
+        }));
+      }
+    }
+
+    var needleDeg = startDeg + (maxValue ? (needleValue / maxValue) * spanDeg : 0);
+    var tip = polar(cx, cy, R_INNER - 14, needleDeg);
+    var baseLeft = polar(cx, cy, 24, needleDeg - 90);
+    var baseRight = polar(cx, cy, 24, needleDeg + 90);
+
+    var needlePath = [
+      'M', baseLeft.x, baseLeft.y,
+      'L', tip.x, tip.y,
+      'L', baseRight.x, baseRight.y,
+      'Z'
+    ].join(' ');
+
+    svg.appendChild(SVG.el('path', { d: needlePath, fill: '#ef4444', stroke: '#b91c1c', 'stroke-width': 1.5 }));
+    svg.appendChild(SVG.circle(cx, cy, 10, { fill: '#b91c1c' }));
+
+    svg.appendChild(SVG.text(cx, cy + 86, formatWeight(needleValue), {
+      'font-size': 26,
+      fill: '#0f172a'
+    }));
+
+    svg.appendChild(SVG.text(cx, cy - (R_OUT + 28), opts.label || 'はかり', {
+      'font-size': 18,
+      fill: '#1e293b'
+    }));
+
+    svg.appendChild(SVG.text(cx, cy + 112, 'g = グラム', {
+      'font-size': 12,
+      fill: '#475569'
+    }));
+
+    return svg;
+  }
+
+  function parse(spec) {
+    var body = spec.replace(/^svg:/, '');
+    var m1 = body.match(/^scale-([^\-]+)-(\d+)-(\d+)$/);
+    if (m1) {
+      var cap1 = parseCapacity(m1[1]);
+      var step1 = parseInt(m1[2], 10);
+      if (!isFinite(step1) || step1 <= 0) {
+        step1 = Math.max(10, Math.round(cap1 / 50));
+      }
+      var needle1 = parseInt(m1[3], 10);
+      if (!isFinite(needle1) || needle1 < 0) needle1 = 0;
+      return {
+        maxValue: cap1,
+        step: step1,
+        needleValue: needle1,
+        label: cap1 >= 1000 ? (cap1 / 1000) + 'kg はかり' : cap1 + 'g はかり'
+      };
+    }
+
+    var m2 = body.match(/^scale-([^\-]+)-needle-(\d+)$/);
+    if (m2) {
+      var cap = parseCapacity(m2[1]);
+      var needle2 = parseInt(m2[2], 10);
+      if (!isFinite(needle2) || needle2 < 0) needle2 = 0;
+      return {
+        maxValue: cap,
+        step: Math.max(10, Math.round(cap / 50)),
+        needleValue: needle2,
+        label: cap >= 1000 ? (cap / 1000) + 'kg はかり' : cap + 'g はかり'
+      };
+    }
+
+    return null;
+  }
+
+  SVG.register(function (spec) {
+    var parsed = parse(spec);
+    if (!parsed) return null;
+    try {
+      return renderScale(parsed);
+    } catch (e) {
+      if (console && console.error) console.error('scale render failed:', e);
+      return null;
+    }
+  });
+})(window.SVG);
+</script>
