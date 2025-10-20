@@ -823,23 +823,34 @@ function renderDailyActivity(activity){
   calendarEl.removeAttribute('aria-rowcount');
 
   var days = (activity && Array.isArray(activity.days)) ? activity.days : [];
-  var rows = Math.ceil(days.length / 7);
+  var columns = 7;
+  var rows = Math.ceil(days.length / columns);
   if (rows > 0) {
     calendarEl.setAttribute('aria-rowcount', String(rows));
   }
 
   var totalSolved = activity && activity.totals && isFinite(activity.totals.solved)
     ? Number(activity.totals.solved) : 0;
+  var activeDays = activity && activity.totals && isFinite(activity.totals.activeDays)
+    ? Number(activity.totals.activeDays) : 0;
   var streak = activity && activity.streak ? activity.streak : { current: 0, longest: 0 };
 
   if (streakEl) {
     var message;
     if (totalSolved > 0) {
-      message = 'さいきん ' + totalSolved + '問 / れんぞく ' + streak.current + '日 (さいだい ' + streak.longest + '日)';
+      message = 'さいきん ' + totalSolved + '問 ・ はたらいた日 ' + activeDays + '日 ・ れんぞく ' + streak.current + '日 (さいだい ' + streak.longest + '日)';
     } else {
       message = 'さいきんの きろくは まだ ありません。';
     }
     streakEl.textContent = message;
+  }
+
+  var windowLength = (activity && activity.window && isFinite(activity.window.length))
+    ? Number(activity.window.length) : null;
+  if (windowLength) {
+    calendarEl.dataset.windowLength = String(windowLength);
+  } else {
+    calendarEl.removeAttribute('data-window-length');
   }
 
   if (days.length === 0) {
@@ -853,45 +864,68 @@ function renderDailyActivity(activity){
 
   var todayStr = activity && activity.window ? activity.window.end : '';
 
-  for (var i = 0; i < days.length; i++) {
-    var info = days[i] || {};
-    var dateStr = info.date || '';
-    var count = Number(info.count || 0);
-    if (!isFinite(count)) count = 0;
+  for (var rowIndex = 0; rowIndex < rows; rowIndex++) {
+    var rowEl = document.createElement('div');
+    rowEl.className = 'activity-calendar-row';
+    rowEl.setAttribute('role', 'row');
+    rowEl.setAttribute('aria-rowindex', String(rowIndex + 1));
 
-    var cell = document.createElement('div');
-    cell.className = 'activity-calendar-day';
-    var level = 0;
-    if (count >= 6) level = 4;
-    else if (count >= 4) level = 3;
-    else if (count >= 2) level = 2;
-    else if (count >= 1) level = 1;
-    cell.classList.add('level-' + level);
-    if (dateStr === todayStr) {
-      cell.classList.add('is-today');
-      cell.setAttribute('aria-current', 'date');
+    for (var colIndex = 0; colIndex < columns; colIndex++) {
+      var dayIndex = rowIndex * columns + colIndex;
+      var info = days[dayIndex] || {};
+      var dateStr = info.date || '';
+      var count = Number(info.count || 0);
+      if (!isFinite(count)) count = 0;
+
+      var cell = document.createElement('div');
+      cell.className = 'activity-calendar-day';
+      cell.setAttribute('tabindex', '-1');
+      cell.setAttribute('aria-colindex', String(colIndex + 1));
+
+      if (!dateStr) {
+        cell.classList.add('is-placeholder');
+        cell.setAttribute('role', 'presentation');
+        cell.removeAttribute('tabindex');
+        cell.removeAttribute('aria-colindex');
+        rowEl.appendChild(cell);
+        continue;
+      }
+
+      cell.setAttribute('role', 'gridcell');
+
+      var level = 0;
+      if (count >= 6) level = 4;
+      else if (count >= 4) level = 3;
+      else if (count >= 2) level = 2;
+      else if (count >= 1) level = 1;
+      cell.classList.add('level-' + level);
+      if (dateStr === todayStr) {
+        cell.classList.add('is-today');
+        cell.setAttribute('aria-current', 'date');
+      }
+
+      var ariaLabel = buildActivityAriaLabel(dateStr, count);
+      if (ariaLabel) {
+        cell.setAttribute('aria-label', ariaLabel);
+        cell.setAttribute('title', ariaLabel);
+      }
+
+      var labelEl = document.createElement('span');
+      labelEl.className = 'activity-calendar-day-date';
+      labelEl.textContent = formatCalendarDayLabel(dateStr);
+
+      var countEl = document.createElement('span');
+      countEl.className = 'activity-calendar-day-count';
+      countEl.textContent = count > 0 ? String(count) : '休';
+
+      cell.dataset.count = String(count);
+      cell.dataset.date = dateStr;
+      cell.appendChild(labelEl);
+      cell.appendChild(countEl);
+      rowEl.appendChild(cell);
     }
 
-    cell.setAttribute('role', 'gridcell');
-    cell.setAttribute('tabindex', '-1');
-    var ariaLabel = buildActivityAriaLabel(dateStr, count);
-    if (ariaLabel) {
-      cell.setAttribute('aria-label', ariaLabel);
-      cell.setAttribute('title', ariaLabel);
-    }
-
-    var labelEl = document.createElement('span');
-    labelEl.className = 'activity-calendar-day-date';
-    labelEl.textContent = formatCalendarDayLabel(dateStr);
-
-    var countEl = document.createElement('span');
-    countEl.className = 'activity-calendar-day-count';
-    countEl.textContent = count > 0 ? String(count) : '休';
-
-    cell.dataset.count = String(count);
-    cell.appendChild(labelEl);
-    cell.appendChild(countEl);
-    calendarEl.appendChild(cell);
+    calendarEl.appendChild(rowEl);
   }
 }
 
