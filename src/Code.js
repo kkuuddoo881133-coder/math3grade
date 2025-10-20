@@ -338,9 +338,11 @@ function getDailyActivity(user_id, days) {
   windowDays = Math.max(1, Math.min(180, Math.floor(windowDays)));
 
   const tz = Session.getScriptTimeZone() || 'Asia/Tokyo';
-  const todayDate = new Date();
-  const todayStr = Utilities.formatDate(todayDate, tz, 'yyyy-MM-dd');
-  const startDate = new Date(todayDate.getTime() - (windowDays - 1) * 24 * 60 * 60 * 1000);
+  const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+  const today = new Date();
+  const todayStr = Utilities.formatDate(today, tz, 'yyyy-MM-dd');
+  const startDate = new Date(today.getTime() - (windowDays - 1) * MS_PER_DAY);
   const startStr = Utilities.formatDate(startDate, tz, 'yyyy-MM-dd');
 
   const ss = SpreadsheetApp.openById(getSpreadsheetId_());
@@ -358,10 +360,13 @@ function getDailyActivity(user_id, days) {
 
   data.forEach(row => {
     if (String(row[idxUid]) !== String(user_id)) return;
+
     const ts = row[idxTs] instanceof Date ? row[idxTs] : new Date(row[idxTs]);
-    if (!ts || !isFinite(ts.getTime())) return;
+    if (!(ts instanceof Date) || !isFinite(ts.getTime())) return;
+
     const dstr = Utilities.formatDate(ts, tz, 'yyyy-MM-dd');
     if (dstr < startStr || dstr > todayStr) return;
+
     countsByDate[dstr] = (countsByDate[dstr] || 0) + 1;
     totalSolved++;
   });
@@ -372,19 +377,22 @@ function getDailyActivity(user_id, days) {
   let activeDays = 0;
 
   for (let offset = windowDays - 1; offset >= 0; offset--) {
-    const d = new Date(todayDate.getTime() - offset * 24 * 60 * 60 * 1000);
-    const dstr = Utilities.formatDate(d, tz, 'yyyy-MM-dd');
+    const day = new Date(today.getTime() - offset * MS_PER_DAY);
+    const dstr = Utilities.formatDate(day, tz, 'yyyy-MM-dd');
     const count = countsByDate[dstr] || 0;
+
     if (count > 0) {
       rollingStreak++;
-      longestStreak = Math.max(longestStreak, rollingStreak);
       activeDays++;
     } else {
+      longestStreak = Math.max(longestStreak, rollingStreak);
       rollingStreak = 0;
     }
+
     daysDetail.push({ date: dstr, count: count });
   }
 
+  longestStreak = Math.max(longestStreak, rollingStreak);
   const currentStreak = rollingStreak;
 
   return {
