@@ -55,6 +55,12 @@
       <section id="screen-summary" class="screen">
         <h2>きょうのまとめ</h2>
         <div id="summary"></div>
+        <div id="summary-streak" class="summary-streak" aria-live="polite"></div>
+        <div id="summary-activity" class="summary-activity" role="region" aria-labelledby="activityCalendarTitle" aria-describedby="activityCalendarCaption">
+          <h3 id="activityCalendarTitle" class="visually-hidden">かつどうカレンダー</h3>
+          <p id="activityCalendarCaption" class="summary-activity-caption">6しゅうかんの かつどうを あつめたカレンダーです。ひとマスずつ きょうから さかのぼって ひょうじします。</p>
+          <div id="activityCalendar" class="activity-calendar" role="grid" aria-labelledby="activityCalendarTitle" aria-describedby="activityCalendarCaption"></div>
+        </div>
         <div id="pixelmap" aria-label="ピクセルアートのプレビュー"></div>
         <button id="homeBtn" type="button">ホームにもどる</button>
       </section>
