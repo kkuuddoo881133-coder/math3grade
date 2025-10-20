@@ -113,56 +113,76 @@ function ensureSheets_() {
 /**
  * 指定ユーザーの最新回答状況を取得
  * @param {string} user_id
+ * @param {string[]=} targetQids 対象 qid を限定する（任意）
  * @return {Object.<string,{timestamp:Date, correct:boolean}>}
  */
-function getUserQuestionStatus_(user_id) {
+function getUserQuestionStatus_(user_id, targetQids) {
   const result = Object.create(null);
-  if (!user_id) return result;
+  const normalizedUid = normalizeUserId_(user_id);
+  if (!normalizedUid) return result;
 
   const ss = SpreadsheetApp.openById(getSpreadsheetId_());
   const sh = ss.getSheetByName(SHEET_RESPONSES);
   if (!sh) return result;
 
-  const data = sh.getDataRange().getValues();
-  if (!data || data.length === 0) return result;
+  const lastRow = sh.getLastRow();
+  if (lastRow < 2) return result; // ヘッダのみ
 
-  const header = data.shift();
-  const idxTs = header.indexOf('timestamp');
-  const idxUid = header.indexOf('user_id');
-  const idxQid = header.indexOf('qid');
-  const idxCorrect = header.indexOf('correct');
-  if (idxTs === -1 || idxUid === -1 || idxQid === -1 || idxCorrect === -1) return result;
+  const map = findHeaderIndexMap_(sh, ['timestamp','user_id','qid','correct']);
+  const width = Math.max(map.timestamp, map.user_id, map.qid, map.correct) + 1;
+  const values = sh.getRange(2, 1, lastRow - 1, width).getValues();
 
-  const targetUid = String(user_id);
-
-  data.forEach(row => {
-    if (String(row[idxUid]) !== targetUid) return;
-
-    let ts = row[idxTs];
-    if (!(ts instanceof Date)) {
-      ts = new Date(ts);
+  let wanted = null;
+  let remaining = 0;
+  if (Array.isArray(targetQids) && targetQids.length > 0) {
+    wanted = Object.create(null);
+    targetQids.forEach(qid => {
+      const key = String(qid || '').trim();
+      if (!key) return;
+      if (!wanted[key]) {
+        wanted[key] = true;
+        remaining++;
+      }
+    });
+    if (remaining === 0) {
+      wanted = null;
     }
-    if (!(ts instanceof Date) || !isFinite(ts.getTime())) return;
+  }
 
-    const qid = String(row[idxQid] || '').trim();
-    if (!qid) return;
+  for (let i = values.length - 1; i >= 0; i--) {
+    const row = values[i];
 
-    const prev = result[qid];
-    if (prev && prev.timestamp && prev.timestamp.getTime() >= ts.getTime()) return;
+    const rowUid = normalizeUserId_(row[map.user_id]);
+    if (rowUid !== normalizedUid) continue;
 
-    const raw = row[idxCorrect];
+    const qid = String(row[map.qid] || '').trim();
+    if (!qid) continue;
+    if (wanted && !wanted[qid]) continue;
+    if (result[qid]) continue; // すでに最新を記録済み
+
+    const tsRaw = row[map.timestamp];
+    const ts = (tsRaw instanceof Date) ? tsRaw : new Date(tsRaw);
+    if (!(ts instanceof Date) || !isFinite(ts.getTime())) continue;
+
+    const rawCorrect = row[map.correct];
     let correct = false;
-    if (typeof raw === 'boolean') {
-      correct = raw;
-    } else if (typeof raw === 'number') {
-      correct = raw !== 0;
-    } else if (typeof raw === 'string') {
-      const upper = raw.toUpperCase();
+    if (typeof rawCorrect === 'boolean') {
+      correct = rawCorrect;
+    } else if (typeof rawCorrect === 'number') {
+      correct = rawCorrect !== 0;
+    } else if (typeof rawCorrect === 'string') {
+      const upper = rawCorrect.trim().toUpperCase();
       correct = upper === 'TRUE' || upper === '1' || upper === 'T' || upper === 'Y';
     }
 
     result[qid] = { timestamp: ts, correct: !!correct };
-  });
+
+    if (wanted) {
+      delete wanted[qid];
+      remaining--;
+      if (remaining <= 0) break;
+    }
+  }
 
   return result;
 }
@@ -303,16 +323,20 @@ function getQuestions(params) {
       return 0;
     });
 
-    const statusMap = getUserQuestionStatus_(user_id);
     const seen = Object.create(null);
+    const orderedUnique = [];
+    pool.forEach(q => {
+      if (seen[q.qid]) return;
+      seen[q.qid] = true;
+      orderedUnique.push(q);
+    });
+
+    const statusMap = getUserQuestionStatus_(user_id, orderedUnique.map(q => q.qid));
     const incorrect = [];
     const unanswered = [];
     const others = [];
 
-    pool.forEach(q => {
-      if (seen[q.qid]) return;
-      seen[q.qid] = true;
-
+    orderedUnique.forEach(q => {
       const status = statusMap[q.qid];
       if (!status) {
         unanswered.push(q);
@@ -324,9 +348,7 @@ function getQuestions(params) {
     });
 
     const prioritized = incorrect.concat(unanswered, others);
-    if (prioritized.length > 0) {
-      pool = prioritized;
-    }
+    pool = prioritized.length > 0 ? prioritized : orderedUnique;
   } else {
     // 既存どおりシャッフル
     shuffle_(pool);
