@@ -110,6 +110,63 @@ function ensureSheets_() {
   }
 }
 
+/**
+ * 指定ユーザーの最新回答状況を取得
+ * @param {string} user_id
+ * @return {Object.<string,{timestamp:Date, correct:boolean}>}
+ */
+function getUserQuestionStatus_(user_id) {
+  const result = Object.create(null);
+  if (!user_id) return result;
+
+  const ss = SpreadsheetApp.openById(getSpreadsheetId_());
+  const sh = ss.getSheetByName(SHEET_RESPONSES);
+  if (!sh) return result;
+
+  const data = sh.getDataRange().getValues();
+  if (!data || data.length === 0) return result;
+
+  const header = data.shift();
+  const idxTs = header.indexOf('timestamp');
+  const idxUid = header.indexOf('user_id');
+  const idxQid = header.indexOf('qid');
+  const idxCorrect = header.indexOf('correct');
+  if (idxTs === -1 || idxUid === -1 || idxQid === -1 || idxCorrect === -1) return result;
+
+  const targetUid = String(user_id);
+
+  data.forEach(row => {
+    if (String(row[idxUid]) !== targetUid) return;
+
+    let ts = row[idxTs];
+    if (!(ts instanceof Date)) {
+      ts = new Date(ts);
+    }
+    if (!(ts instanceof Date) || !isFinite(ts.getTime())) return;
+
+    const qid = String(row[idxQid] || '').trim();
+    if (!qid) return;
+
+    const prev = result[qid];
+    if (prev && prev.timestamp && prev.timestamp.getTime() >= ts.getTime()) return;
+
+    const raw = row[idxCorrect];
+    let correct = false;
+    if (typeof raw === 'boolean') {
+      correct = raw;
+    } else if (typeof raw === 'number') {
+      correct = raw !== 0;
+    } else if (typeof raw === 'string') {
+      const upper = raw.toUpperCase();
+      correct = upper === 'TRUE' || upper === '1' || upper === 'T' || upper === 'Y';
+    }
+
+    result[qid] = { timestamp: ts, correct: !!correct };
+  });
+
+  return result;
+}
+
 // ===== データ取得API =====
 function getDomains() {
   const ss = SpreadsheetApp.openById(getSpreadsheetId_());
@@ -183,7 +240,7 @@ function getQuestions(params) {
     return isFinite(n) ? n : String(x || '');
   }
 
-  const pool = data
+  let pool = data
     .filter(r => String(r[map['domain']] || '').trim() === domain || !domain)
     .map(r => {
       const choices = String(r[map['choices']] || '')
@@ -245,12 +302,41 @@ function getQuestions(params) {
 
       return 0;
     });
+
+    const statusMap = getUserQuestionStatus_(user_id);
+    const seen = Object.create(null);
+    const incorrect = [];
+    const unanswered = [];
+    const others = [];
+
+    pool.forEach(q => {
+      if (seen[q.qid]) return;
+      seen[q.qid] = true;
+
+      const status = statusMap[q.qid];
+      if (!status) {
+        unanswered.push(q);
+      } else if (!status.correct) {
+        incorrect.push(q);
+      } else {
+        others.push(q);
+      }
+    });
+
+    const prioritized = incorrect.concat(unanswered, others);
+    if (prioritized.length > 0) {
+      pool = prioritized;
+    }
   } else {
     // 既存どおりシャッフル
     shuffle_(pool);
   }
 
-  return pool.slice(0, limit);
+  let result = pool.slice(0, limit);
+  if (result.length === 0 && pool.length > 0) {
+    result = pool.slice();
+  }
+  return result;
 }
 
 
