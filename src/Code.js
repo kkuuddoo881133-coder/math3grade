@@ -110,6 +110,83 @@ function ensureSheets_() {
   }
 }
 
+/**
+ * 指定ユーザーの最新回答状況を取得
+ * @param {string} user_id
+ * @param {string[]=} targetQids 対象 qid を限定する（任意）
+ * @return {Object.<string,{timestamp:Date, correct:boolean}>}
+ */
+function getUserQuestionStatus_(user_id, targetQids) {
+  const result = Object.create(null);
+  const normalizedUid = normalizeUserId_(user_id);
+  if (!normalizedUid) return result;
+
+  const ss = SpreadsheetApp.openById(getSpreadsheetId_());
+  const sh = ss.getSheetByName(SHEET_RESPONSES);
+  if (!sh) return result;
+
+  const lastRow = sh.getLastRow();
+  if (lastRow < 2) return result; // ヘッダのみ
+
+  const map = findHeaderIndexMap_(sh, ['timestamp','user_id','qid','correct']);
+  const width = Math.max(map.timestamp, map.user_id, map.qid, map.correct) + 1;
+  const values = sh.getRange(2, 1, lastRow - 1, width).getValues();
+
+  let wanted = null;
+  let remaining = 0;
+  if (Array.isArray(targetQids) && targetQids.length > 0) {
+    wanted = Object.create(null);
+    targetQids.forEach(qid => {
+      const key = String(qid || '').trim();
+      if (!key) return;
+      if (!wanted[key]) {
+        wanted[key] = true;
+        remaining++;
+      }
+    });
+    if (remaining === 0) {
+      wanted = null;
+    }
+  }
+
+  for (let i = values.length - 1; i >= 0; i--) {
+    const row = values[i];
+
+    const rowUid = normalizeUserId_(row[map.user_id]);
+    if (rowUid !== normalizedUid) continue;
+
+    const qid = String(row[map.qid] || '').trim();
+    if (!qid) continue;
+    if (wanted && !wanted[qid]) continue;
+    if (result[qid]) continue; // すでに最新を記録済み
+
+    const tsRaw = row[map.timestamp];
+    const ts = (tsRaw instanceof Date) ? tsRaw : new Date(tsRaw);
+    if (!(ts instanceof Date) || !isFinite(ts.getTime())) continue;
+
+    const rawCorrect = row[map.correct];
+    let correct = false;
+    if (typeof rawCorrect === 'boolean') {
+      correct = rawCorrect;
+    } else if (typeof rawCorrect === 'number') {
+      correct = rawCorrect !== 0;
+    } else if (typeof rawCorrect === 'string') {
+      const upper = rawCorrect.trim().toUpperCase();
+      correct = upper === 'TRUE' || upper === '1' || upper === 'T' || upper === 'Y';
+    }
+
+    result[qid] = { timestamp: ts, correct: !!correct };
+
+    if (wanted) {
+      delete wanted[qid];
+      remaining--;
+      if (remaining <= 0) break;
+    }
+  }
+
+  return result;
+}
+
 // ===== データ取得API =====
 function getDomains() {
   const ss = SpreadsheetApp.openById(getSpreadsheetId_());
@@ -183,7 +260,7 @@ function getQuestions(params) {
     return isFinite(n) ? n : String(x || '');
   }
 
-  const pool = data
+  let pool = data
     .filter(r => String(r[map['domain']] || '').trim() === domain || !domain)
     .map(r => {
       const choices = String(r[map['choices']] || '')
@@ -245,12 +322,43 @@ function getQuestions(params) {
 
       return 0;
     });
+
+    const seen = Object.create(null);
+    const orderedUnique = [];
+    pool.forEach(q => {
+      if (seen[q.qid]) return;
+      seen[q.qid] = true;
+      orderedUnique.push(q);
+    });
+
+    const statusMap = getUserQuestionStatus_(user_id, orderedUnique.map(q => q.qid));
+    const incorrect = [];
+    const unanswered = [];
+    const others = [];
+
+    orderedUnique.forEach(q => {
+      const status = statusMap[q.qid];
+      if (!status) {
+        unanswered.push(q);
+      } else if (!status.correct) {
+        incorrect.push(q);
+      } else {
+        others.push(q);
+      }
+    });
+
+    const prioritized = incorrect.concat(unanswered, others);
+    pool = prioritized.length > 0 ? prioritized : orderedUnique;
   } else {
     // 既存どおりシャッフル
     shuffle_(pool);
   }
 
-  return pool.slice(0, limit);
+  let result = pool.slice(0, limit);
+  if (result.length === 0 && pool.length > 0) {
+    result = pool.slice();
+  }
+  return result;
 }
 
 
